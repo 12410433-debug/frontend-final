@@ -32,7 +32,7 @@ const FALLBACK_USERS = [
     id: 'ZT4lcKY42yU',
     name: 'BEM FILKOM',
     email: 'bemfilkomm@gmail.com',
-    password: 'bemfilkom',
+    password: 'panitia123',
     role: 'bem',
     status: 'active',
   },
@@ -111,12 +111,40 @@ export const AuthProvider = ({ children }) => {
       users = FALLBACK_USERS;
     }
 
-    const matchedUser = users.find(
+    const emailMatches = users.filter(
       (candidate) => String(candidate.email || '').trim().toLowerCase() === normalizedEmail
     );
 
-    if (!matchedUser) {
+    if (emailMatches.length === 0) {
       throw new Error('Alamat email belum terdaftar di sistem. Periksa kembali email Anda.');
+    }
+
+    const normalizedExpected = expectedRole === 'committee' ? 'bem' : expectedRole;
+
+    // Cari akun yang sesuai dengan role portal yang sedang diakses
+    let matchedUser = normalizedExpected
+      ? emailMatches.find(
+          (candidate) => (candidate.role === 'committee' ? 'bem' : candidate.role) === normalizedExpected
+        )
+      : null;
+
+    if (!matchedUser) {
+      if (normalizedExpected) {
+        const roleLabels = {
+          admin: 'Administrator',
+          bem: 'Panitia Event / BEM',
+          committee: 'Panitia Event / BEM',
+          student: 'Mahasiswa',
+        };
+        const existingRoles = emailMatches
+          .map((c) => roleLabels[c.role] || c.role)
+          .join(', ');
+        const portalRole = roleLabels[normalizedExpected] || normalizedExpected;
+        throw new Error(
+          `Akun dengan email ini belum terdaftar untuk portal ${portalRole} (terdaftar sebagai: ${existingRoles}). Silakan masuk melalui portal yang sesuai.`
+        );
+      }
+      matchedUser = emailMatches[0];
     }
 
     const expectedPassword = String(
@@ -132,23 +160,6 @@ export const AuthProvider = ({ children }) => {
     }
 
     const userData = normalizeUserRole(matchedUser);
-
-    if (expectedRole) {
-      const normalizedExpected = expectedRole === 'committee' ? 'bem' : expectedRole;
-      if (userData.role !== normalizedExpected) {
-        const roleLabels = {
-          admin: 'Administrator',
-          bem: 'Panitia Event / BEM',
-          committee: 'Panitia Event / BEM',
-          student: 'Mahasiswa',
-        };
-        const akunRole = roleLabels[userData.role] || userData.role;
-        const portalRole = roleLabels[normalizedExpected] || normalizedExpected;
-        throw new Error(
-          `Akun Anda memiliki hak akses sebagai ${akunRole}, bukan ${portalRole}. Silakan masuk melalui portal yang sesuai.`
-        );
-      }
-    }
 
     // Hanya profil yang diperlukan disimpan di sesi browser; password tidak disimpan.
     const cleanUserData = { ...userData };
@@ -174,6 +185,10 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Format alamat email tidak valid.');
     }
 
+    if (!cleanEmail.endsWith('@student.unklab.ac.id')) {
+      throw new Error('Pendaftaran akun mahasiswa hanya dapat menggunakan email resmi @student.unklab.ac.id.');
+    }
+
     if (cleanPassword.length < 6) {
       throw new Error('Kata sandi minimal 6 karakter.');
     }
@@ -187,10 +202,10 @@ export const AuthProvider = ({ children }) => {
     }
 
     const emailOwner = users.find(
-      (u) => String(u.email || '').trim().toLowerCase() === cleanEmail
+      (u) => u.role === 'student' && String(u.email || '').trim().toLowerCase() === cleanEmail
     );
     if (emailOwner) {
-      throw new Error('Alamat email ini sudah terdaftar. Silakan gunakan email lain atau masuk ke akun Anda.');
+      throw new Error('Alamat email ini sudah terdaftar sebagai akun mahasiswa. Silakan masuk ke akun Anda.');
     }
 
     const nimOwner = users.find(

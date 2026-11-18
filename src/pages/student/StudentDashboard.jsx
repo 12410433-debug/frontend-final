@@ -31,7 +31,6 @@ import { downloadPaymentReceiptPdf } from '../../utils/paymentReceiptPdf';
 import { downloadCertificatePdf } from '../../utils/certificatePdf';
 
 
-const ANNOUNCEMENT_CATEGORIES = ['Akademik', 'Event', 'Organisasi', 'Informasi Fakultas', 'Lainnya'];
 const EMPTY_REGISTRATION_FORM = { name: '', email: '', nim: '', major: '', phone: '', mealChoice: '', shirtSize: '', paymentMethod: 'cash', paymentProof: '', paymentProofName: '' };
 function formatRegistrationFee(value) {
   const amount = Number(value) || 0;
@@ -114,7 +113,6 @@ export default function StudentDashboard() {
   };
   const [searchEvent, setSearchEvent] = useState('');
   const [announcementSearch, setAnnouncementSearch] = useState('');
-  const [announcementCategoryFilter, setAnnouncementCategoryFilter] = useState('');
   const [publishedAnnouncements, setPublishedAnnouncements] = useState([]);
   const [announcementEvents, setAnnouncementEvents] = useState([]);
   const [announcementEventFilter, setAnnouncementEventFilter] = useState('');
@@ -384,11 +382,10 @@ export default function StudentDashboard() {
   const visibleAnnouncements = useMemo(() => publishedAnnouncements
     .filter((item) => item.status === 'published')
     .filter((item) => item.title.toLowerCase().includes(announcementSearch.trim().toLowerCase()))
-    .filter((item) => !announcementCategoryFilter || item.category === announcementCategoryFilter)
     .filter((item) => !announcementEventFilter || (announcementEventFilter === 'general' ? !item.eventId : String(item.eventId || '') === announcementEventFilter))
     .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
       || String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''))),
-  [publishedAnnouncements, announcementSearch, announcementCategoryFilter, announcementEventFilter]);
+  [publishedAnnouncements, announcementSearch, announcementEventFilter]);
   const pinnedAnnouncements = visibleAnnouncements.filter((item) => item.isPinned);
   const regularAnnouncements = visibleAnnouncements.filter((item) => !item.isPinned);
 
@@ -625,9 +622,6 @@ export default function StudentDashboard() {
           </div>
           <select value={announcementEventFilter} onChange={(event) => setAnnouncementEventFilter(event.target.value)} aria-label="Filter event pengumuman" className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm">
             <option value="">Semua event</option><option value="general">Umum FILKOM</option>{announcementEvents.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-          </select>
-          <select value={announcementCategoryFilter} onChange={(event) => setAnnouncementCategoryFilter(event.target.value)} aria-label="Filter kategori pengumuman" className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm">
-            <option value="">Semua kategori</option>{ANNOUNCEMENT_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
           </select>
         </div>
 
@@ -1083,11 +1077,10 @@ export default function StudentDashboard() {
         {selectedAnnouncement && (
           <div className="space-y-4 text-left text-[#172554]">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-[#1E3A8A]">
-              <Badge variant="blue">{selectedAnnouncement.category}</Badge>
               <div className="flex items-center gap-2">
                 {selectedAnnouncement.isPinned && <Badge variant="yellow" icon={Pin}>Penting</Badge>}{selectedAnnouncement.eventTitle && <Badge variant="purple" icon={CalendarDays}>{selectedAnnouncement.eventTitle}</Badge>}
-                <span>{formatAnnouncementDate(selectedAnnouncement.publishedAt)}</span>
               </div>
+              <span className="text-slate-500 font-medium">{formatAnnouncementDate(selectedAnnouncement.publishedAt)}</span>
             </div>
             <p className="text-sm text-[#172554] font-medium leading-relaxed whitespace-pre-line">
               {selectedAnnouncement.content}

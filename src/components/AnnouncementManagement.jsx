@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, CalendarDays, Eye, Mail, Pencil, Pin, PinOff, Plus, Search, Trash2, Wifi } from 'lucide-react';
+import { Bell, CalendarDays, Eye, Mail, Pencil, Pin, PinOff, Plus, Search, Trash2 } from 'lucide-react';
 import Alert from './Alert';
 import Badge from './Badge';
 import Button from './Button';
@@ -11,8 +11,7 @@ import eventApi from '../services/eventApi';
 import notificationApi from '../services/notificationApi';
 import { useAuth } from '../context/AuthContext';
 
-const CATEGORIES = ['Akademik', 'Event', 'Organisasi', 'Informasi Fakultas', 'Lainnya'];
-const EMPTY_FORM = { title: '', content: '', category: 'Akademik', status: 'draft', isPinned: false, eventId: '' };
+const EMPTY_FORM = { title: '', content: '', status: 'draft', isPinned: false, eventId: '' };
 
 function formatPublishedAt(value) {
   if (!value) return 'Belum dipublikasikan';
@@ -25,18 +24,20 @@ function requestErrorMessage(error, fallback) {
   return error.response?.data?.error || error.response?.data?.message || fallback;
 }
 
-export default function AnnouncementManagement() {
+export default function AnnouncementManagement({ assignedOnly = false }) {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isBemOfficial = String(user?.email || '').trim().toLowerCase() === 'bemfilkomm@gmail.com';
+  const isFullAccess = isAdmin || isBemOfficial;
+  const effectiveAssignedOnly = !isFullAccess || assignedOnly;
+
   const [announcements, setAnnouncements] = useState([]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingPinId, setSavingPinId] = useState(null);
   const [sendingId, setSendingId] = useState(null);
-  const [smtpStatus, setSmtpStatus] = useState({ configured: false, provider: 'Gmail SMTP' });
-  const [smtpChecking, setSmtpChecking] = useState(false);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [eventFilter, setEventFilter] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -60,23 +61,21 @@ export default function AnnouncementManagement() {
         if (active) setError('Pengumuman atau event gagal dimuat. Pastikan JSON Server aktif di port 3001.');
       })
       .finally(() => { if (active) setLoading(false); });
-
-    notificationApi.getSmtpStatus()
-      .then((status) => { if (active) setSmtpStatus(status); })
-      .catch(() => {});
     return () => { active = false; };
   }, []);
 
   const eventById = useMemo(() => new Map(events.map((event) => [String(event.id), event])), [events]);
+  const accessibleEvents = useMemo(() => events.filter((event) => (
+    !effectiveAssignedOnly || String(event.organizerId) === String(user?.id)
+  )), [events, effectiveAssignedOnly, user?.id]);
   const visibleAnnouncements = useMemo(() => announcements
     .filter((item) => item.title?.toLowerCase().includes(search.trim().toLowerCase()))
-    .filter((item) => !categoryFilter || item.category === categoryFilter)
     .filter((item) => !statusFilter || item.status === statusFilter)
     .filter((item) => !eventFilter
       || (eventFilter === 'general' ? !item.eventId : String(item.eventId || '') === eventFilter))
     .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
       || String(b.publishedAt || b.createdAt).localeCompare(String(a.publishedAt || a.createdAt))),
-  [announcements, search, categoryFilter, statusFilter, eventFilter]);
+  [announcements, search, statusFilter, eventFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -89,7 +88,6 @@ export default function AnnouncementManagement() {
     setForm({
       title: item.title || '',
       content: item.content || '',
-      category: CATEGORIES.includes(item.category) ? item.category : 'Lainnya',
       status: item.status === 'published' ? 'published' : 'draft',
       isPinned: Boolean(item.isPinned),
       eventId: item.eventId ? String(item.eventId) : '',
@@ -113,21 +111,6 @@ export default function AnnouncementManagement() {
     }
   };
 
-  const verifySmtp = async () => {
-    setSmtpChecking(true);
-    setError('');
-    setSuccess('');
-    try {
-      const result = await notificationApi.verifySmtp(user?.id);
-      setSmtpStatus((current) => ({ ...current, configured: true }));
-      setSuccess(result.message);
-    } catch (smtpError) {
-      setError(requestErrorMessage(smtpError, 'Koneksi Gmail SMTP gagal. Periksa SMTP_USER dan SMTP_APP_PASSWORD pada .env.'));
-    } finally {
-      setSmtpChecking(false);
-    }
-  };
-
   const saveAnnouncement = async (event) => {
     event.preventDefault();
     setError('');
@@ -145,7 +128,7 @@ export default function AnnouncementManagement() {
     const payload = {
       title,
       content,
-      category: form.category,
+      category: 'Umum',
       status: form.status,
       isPinned: Boolean(form.isPinned),
       eventId: form.eventId || null,
@@ -216,8 +199,6 @@ export default function AnnouncementManagement() {
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><p className="text-xs font-bold uppercase tracking-wider text-blue-100">BEM Fakultas</p><h1 className="mt-1 text-2xl font-extrabold">Pengumuman per Event</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-blue-100">Pisahkan informasi umum dan pengumuman untuk event tertentu. Publikasi dapat dikirim ke email mahasiswa atau peserta event.</p></div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className={'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ' + (smtpStatus.configured ? 'border-emerald-200/40 bg-emerald-400/15 text-white' : 'border-amber-200/40 bg-amber-300/15 text-amber-100')}><Mail className="h-4 w-4" />{smtpStatus.configured ? 'Gmail SMTP siap' : 'Gmail SMTP belum diatur'}</span>
-            <Button variant="secondary" icon={Wifi} isLoading={smtpChecking} disabled={smtpChecking} onClick={verifySmtp}>Tes SMTP</Button>
             <Button icon={Plus} onClick={openCreate}>Tambah Pengumuman</Button>
           </div>
         </div>
@@ -229,17 +210,15 @@ export default function AnnouncementManagement() {
       <Card className="overflow-hidden border border-[#BFDBFE] bg-white">
         <CardHeader className="flex-col items-stretch gap-3 border-b border-[#BFDBFE] sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-800" /><input aria-label="Cari judul pengumuman" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari judul pengumuman..." className="w-full rounded-xl border border-[#BFDBFE] bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-          <select aria-label="Filter event pengumuman" value={eventFilter} onChange={(event) => setEventFilter(event.target.value)} className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm"><option value="">Semua event</option><option value="general">Umum FILKOM</option>{events.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
-          <select aria-label="Filter kategori pengumuman" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm"><option value="">Semua kategori</option>{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select>
+          <select aria-label="Filter event pengumuman" value={eventFilter} onChange={(event) => setEventFilter(event.target.value)} className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm"><option value="">Semua event</option><option value="general">Umum FILKOM</option>{accessibleEvents.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
           <select aria-label="Filter status pengumuman" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm"><option value="">Semua status</option><option value="draft">Draft</option><option value="published">Published</option></select>
         </CardHeader>
         {loading ? <p className="p-8 text-center text-sm text-blue-800">Memuat pengumuman...</p> : visibleAnnouncements.length === 0 ? <div className="p-10 text-center text-sm text-slate-600"><Bell className="mx-auto mb-2 h-8 w-8 text-blue-500" />Tidak ada pengumuman yang sesuai filter.</div> : (
-          <div className="overflow-x-auto"><table className="w-full min-w-[930px] text-left text-sm">
-            <thead className="bg-[#EFF6FF] text-xs uppercase text-[#1E3A8A]"><tr><th className="px-5 py-3">Judul</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Kategori</th><th className="px-4 py-3">Publikasi</th><th className="px-4 py-3">Pin</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead>
+          <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm">
+            <thead className="bg-[#EFF6FF] text-xs uppercase text-[#1E3A8A]"><tr><th className="px-5 py-3">Judul</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Publikasi</th><th className="px-4 py-3">Pin</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead>
             <tbody className="divide-y divide-blue-100">{visibleAnnouncements.map((item) => <tr key={item.id} className="hover:bg-blue-50/50">
               <td className="px-5 py-4"><p className="font-bold">{item.title}</p><p className="mt-1 line-clamp-2 max-w-md text-xs text-slate-600">{item.content}</p></td>
               <td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800"><CalendarDays className="h-3.5 w-3.5" />{eventName(item.eventId)}</span></td>
-              <td className="px-4 py-4">{item.category}</td>
               <td className="whitespace-nowrap px-4 py-4">{formatPublishedAt(item.publishedAt)}</td>
               <td className="px-4 py-4"><button type="button" onClick={() => togglePin(item)} disabled={savingPinId === item.id} aria-label={item.isPinned ? 'Lepas pin ' + item.title : 'Pin ' + item.title} title={item.isPinned ? 'Lepas pin' : 'Sematkan'} className="rounded-lg p-2 text-amber-700 hover:bg-amber-50 disabled:opacity-50">{savingPinId === item.id ? <span className="text-xs">...</span> : item.isPinned ? <Pin className="h-4 w-4 fill-current" /> : <PinOff className="h-4 w-4" />}</button></td>
               <td className="px-4 py-4"><Badge variant={item.status === 'published' ? 'green' : 'yellow'} size="sm" dot>{item.status === 'published' ? 'Published' : 'Draft'}</Badge></td>
@@ -257,8 +236,7 @@ export default function AnnouncementManagement() {
           <Input label="Judul" value={form.title} onChange={setField('title')} required maxLength={140} placeholder="Judul pengumuman" />
           <label className="block text-xs font-bold">Isi Pengumuman<textarea value={form.content} onChange={setField('content')} required maxLength={5000} rows={7} placeholder="Tulis isi pengumuman dengan jelas." className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></label>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold">Terkait Event<select value={form.eventId} onChange={setField('eventId')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="">Umum FILKOM (semua mahasiswa)</option>{events.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
-            <label className="block text-xs font-bold">Kategori<select value={form.category} onChange={setField('category')} required className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm">{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label className="block text-xs font-bold">Terkait Event<select value={form.eventId} onChange={setField('eventId')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="">Umum FILKOM (semua mahasiswa)</option>{accessibleEvents.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
             <label className="block text-xs font-bold">Status<select value={form.status} onChange={setField('status')} required className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="draft">Draft</option><option value="published">Published</option></select></label>
           </div>
           <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm font-semibold"><input type="checkbox" checked={form.isPinned} onChange={(event) => setForm((current) => ({ ...current, isPinned: event.target.checked }))} className="h-4 w-4 accent-blue-600" /><Pin className="h-4 w-4 text-amber-700" />Tandai sebagai pengumuman penting (Pin)</label>
@@ -268,7 +246,7 @@ export default function AnnouncementManagement() {
       </Modal>
 
       <Modal isOpen={!!details} onClose={() => setDetails(null)} title="Detail Pengumuman" maxWidth="max-w-2xl" footer={<Button onClick={() => setDetails(null)}>Tutup</Button>}>
-        {details && <article className="space-y-4"><div className="flex flex-wrap items-center gap-2"><Badge variant="blue">{details.category}</Badge><Badge variant={details.status === 'published' ? 'green' : 'yellow'}>{details.status === 'published' ? 'Published' : 'Draft'}</Badge>{details.isPinned && <Badge variant="yellow" icon={Pin}>Penting</Badge>}<Badge variant="blue" icon={CalendarDays}>{eventName(details.eventId)}</Badge></div><h3 className="text-xl font-extrabold">{details.title}</h3><p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{details.content}</p><p className="border-t border-blue-100 pt-3 text-xs text-slate-500">Tanggal publikasi: {formatPublishedAt(details.publishedAt)}</p></article>}
+        {details && <article className="space-y-4"><div className="flex flex-wrap items-center gap-2"><Badge variant={details.status === 'published' ? 'green' : 'yellow'}>{details.status === 'published' ? 'Published' : 'Draft'}</Badge>{details.isPinned && <Badge variant="yellow" icon={Pin}>Penting</Badge>}<Badge variant="blue" icon={CalendarDays}>{eventName(details.eventId)}</Badge></div><h3 className="text-xl font-extrabold">{details.title}</h3><p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{details.content}</p><p className="border-t border-blue-100 pt-3 text-xs text-slate-500">Tanggal publikasi: {formatPublishedAt(details.publishedAt)}</p></article>}
       </Modal>
 
       <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="Hapus Pengumuman" footer={<><Button variant="ghost" onClick={() => setDeleting(null)}>Batal</Button><Button variant="danger" onClick={confirmDelete}>Hapus</Button></>}><p className="text-sm text-slate-700">Hapus pengumuman <strong>{deleting?.title}</strong>? Penghapusan akan tersimpan di JSON Server.</p></Modal>

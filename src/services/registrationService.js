@@ -27,18 +27,17 @@ async function createOrUpdateStudentProfile(profile) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email tidak valid.');
 
   const { data: users } = await jsonServerApi.get('/users');
-  const emailOwner = users.find((user) => user.email?.toLowerCase() === email);
+  const studentEmailOwner = users.find((user) => user.role === 'student' && user.email?.toLowerCase() === email);
   const nimOwner = users.find((user) => user.role === 'student' && String(user.nim || '').trim() === nim);
-  if (emailOwner && emailOwner.role !== 'student') throw new Error('Email ini digunakan akun pengelola. Masukkan email mahasiswa.');
-  if (emailOwner && nimOwner && String(emailOwner.id) !== String(nimOwner.id)) {
+  if (studentEmailOwner && nimOwner && String(studentEmailOwner.id) !== String(nimOwner.id)) {
     throw new Error('Email dan NIM terhubung ke profil mahasiswa yang berbeda. Periksa kembali data diri.');
   }
 
-  const existing = emailOwner || nimOwner;
+  const existing = studentEmailOwner || nimOwner;
   const profileData = { name, email, nim, major, phone: phone || null, role: 'student', status: 'active' };
   if (existing) {
     if (existing.status !== 'active') throw new Error('Profil mahasiswa ini tidak aktif. Hubungi Admin FILKOM.');
-    if (emailOwner && String(emailOwner.nim || '').trim() && String(emailOwner.nim).trim() !== nim) {
+    if (studentEmailOwner && String(studentEmailOwner.nim || '').trim() && String(studentEmailOwner.nim).trim() !== nim) {
       throw new Error('Email ini sudah tercatat dengan NIM berbeda. Periksa kembali data diri.');
     }
     const { data: updated } = await jsonServerApi.patch(`/users/${existing.id}`, profileData);

@@ -45,7 +45,7 @@ const ROLE_METADATA = {
     badgeVariant: 'blue',
     icon: ShieldCheck,
     iconColor: 'bg-blue-50 text-blue-600',
-    placeholderEmail: 'hmp.ti@unklab.ac.id',
+    placeholderEmail: 'bemfilkomm@gmail.com',
     dashboardPath: '/bem',
   },
   admin: {

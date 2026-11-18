@@ -130,6 +130,11 @@ async function compressPosterImage(file) {
 
 export default function EventManagement({ assignedOnly = false }) {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isBemOfficial = String(user?.email || '').trim().toLowerCase() === 'bemfilkomm@gmail.com';
+  const isFullAccess = isAdmin || isBemOfficial;
+  const effectiveAssignedOnly = !isFullAccess || assignedOnly;
+
   const [events, setEvents] = useState([]);
   const [organizers, setOrganizers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -183,18 +188,18 @@ export default function EventManagement({ assignedOnly = false }) {
   }, [user?.role]);
 
   const visibleEvents = useMemo(() => events
-    .filter((event) => !assignedOnly || String(event.organizerId) === String(user?.id))
+    .filter((event) => !effectiveAssignedOnly || String(event.organizerId) === String(user?.id))
     .filter((event) => event.title?.toLowerCase().includes(search.trim().toLowerCase()))
     .filter((event) => !categoryFilter || event.category === categoryFilter)
     .filter((event) => !statusFilter || event.status === statusFilter)
     .sort((a, b) => String(a.date).localeCompare(String(b.date))),
-  [events, assignedOnly, user?.id, search, categoryFilter, statusFilter]);
+  [events, effectiveAssignedOnly, user?.id, search, categoryFilter, statusFilter]);
 
   const openCreate = useCallback(() => {
     setEditingEvent(null);
-    setForm({ ...EMPTY_FORM, organizerId: assignedOnly ? String(user?.id || '') : '' });
+    setForm({ ...EMPTY_FORM, organizerId: effectiveAssignedOnly ? String(user?.id || '') : '' });
     setFormOpen(true);
-  }, [assignedOnly, user?.id]);
+  }, [effectiveAssignedOnly, user?.id]);
 
   useEffect(() => {
     if (!['bem', 'admin', 'committee'].includes(user?.role)) return undefined;
@@ -207,7 +212,7 @@ export default function EventManagement({ assignedOnly = false }) {
     };
   }, [user?.role, openCreate]);
   const openEdit = (event) => {
-    if (assignedOnly && String(event.organizerId) !== String(user?.id)) return;
+    if (effectiveAssignedOnly && String(event.organizerId) !== String(user?.id)) return;
     setEditingEvent(event);
     setForm({
       ...EMPTY_FORM,
@@ -228,7 +233,7 @@ export default function EventManagement({ assignedOnly = false }) {
 
   const updateStatus = async (event, status) => {
     if (!STATUSES.includes(status) || status === event.status) return;
-    if (assignedOnly && String(event.organizerId) !== String(user?.id)) return;
+    if (effectiveAssignedOnly && String(event.organizerId) !== String(user?.id)) return;
     setSavingStatusId(event.id);
     setError('');
     setNotice('');
@@ -322,9 +327,9 @@ export default function EventManagement({ assignedOnly = false }) {
     }
 
 
-    const organizerId = assignedOnly ? String(user.id) : String(form.organizerId);
+    const organizerId = effectiveAssignedOnly ? String(user.id) : String(form.organizerId);
     if (!organizerId) {
-      setError('Pilih penanggung jawab BEM untuk event.');
+      setError('Pilih penanggung jawab panitia untuk event.');
       return;
     }
 
@@ -380,7 +385,7 @@ export default function EventManagement({ assignedOnly = false }) {
   };
 
   const confirmDelete = async () => {
-    if (!deleteEvent || (assignedOnly && String(deleteEvent.organizerId) !== String(user?.id))) return;
+    if (!deleteEvent || (effectiveAssignedOnly && String(deleteEvent.organizerId) !== String(user?.id))) return;
     try {
       setError('');
       await eventApi.remove(deleteEvent.id);
@@ -432,13 +437,14 @@ export default function EventManagement({ assignedOnly = false }) {
 
         {activeEventSubView.type === 'attendance' && (
           <AttendanceManagement
-            assignedOnly={assignedOnly}
+            assignedOnly={effectiveAssignedOnly}
             initialEventId={String(activeEventSubView.event.id)}
           />
         )}
 
         {activeEventSubView.type === 'certificates' && (
           <CertificateTemplateManagement
+            assignedOnly={effectiveAssignedOnly}
             initialEventId={String(activeEventSubView.event.id)}
           />
         )}
@@ -450,8 +456,8 @@ export default function EventManagement({ assignedOnly = false }) {
     <section id="events" className="space-y-5 text-[#172554]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#BFDBFE] bg-white p-5 sm:p-6 shadow-sm">
         <div>
-          <h2 className="text-xl font-extrabold">{assignedOnly ? 'Event yang Ditugaskan' : 'Manajemen Event'}</h2>
-          <p className="mt-1 text-sm text-[#1E40AF]">{assignedOnly ? 'Kelola event yang ditugaskan kepada akun BEM ini.' : 'BEM Fakultas dapat mengelola seluruh event FILKOM dari JSON Server.'}</p>
+          <h2 className="text-xl font-extrabold">{effectiveAssignedOnly ? 'Event yang Ditugaskan' : 'Manajemen Event'}</h2>
+          <p className="mt-1 text-sm text-[#1E40AF]">{effectiveAssignedOnly ? 'Kelola event yang ditugaskan kepada akun panitia ini.' : 'Admin & BEM Fakultas dapat mengelola seluruh event FILKOM dan menugaskan panitia penanggung jawab.'}</p>
         </div>
         <Button icon={Plus} onClick={openCreate}>Tambah Event</Button>
       </div>
@@ -489,7 +495,7 @@ export default function EventManagement({ assignedOnly = false }) {
               </thead>
               <tbody className="divide-y divide-blue-100">
                 {visibleEvents.map((event) => {
-                  const canManage = !assignedOnly || String(event.organizerId) === String(user?.id);
+                  const canManage = !effectiveAssignedOnly || String(event.organizerId) === String(user?.id);
                   const isFull = (event.registeredCount || 0) >= (event.quota || 1);
                   const quotaPercent = Math.min(100, Math.round(((event.registeredCount || 0) / (event.quota || 1)) * 100));
                   return (
@@ -677,7 +683,24 @@ export default function EventManagement({ assignedOnly = false }) {
               {form.poster && <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-white p-2"><img src={form.poster} alt="Pratinjau poster event" className="h-24 w-20 rounded-lg object-cover" /><div className="flex-1"><p className="text-xs font-bold text-blue-900">Poster terpilih</p><button type="button" disabled={posterLoading || saving} onClick={() => setForm((current) => ({ ...current, poster: '' }))} className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Hapus poster</button></div></div>}
             </div>
             <label className="block text-xs font-bold">Status<select required value={form.status} onChange={setField('status')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm">{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select></label>
-            {!assignedOnly && <label className="block text-xs font-bold">Penanggung jawab BEM<select required value={form.organizerId} onChange={setField('organizerId')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="">Pilih penanggung jawab</option>{organizers.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.id})</option>)}</select></label>}
+            {!effectiveAssignedOnly && (
+              <label className="block text-xs font-bold">
+                Penanggung Jawab Panitia / BEM
+                <select
+                  required
+                  value={form.organizerId}
+                  onChange={setField('organizerId')}
+                  className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm font-semibold"
+                >
+                  <option value="">Pilih penanggung jawab panitia</option>
+                  {organizers.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.email || item.role})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <section className="space-y-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:col-span-2">
             <div><h3 className="text-sm font-extrabold text-[#172554]">Biaya dan pilihan peserta</h3><p className="mt-1 text-xs font-medium text-slate-600">Atur biaya pendaftaran, pilihan menu, dan ukuran baju untuk event ini.</p></div>

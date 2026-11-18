@@ -11,7 +11,6 @@ import Modal from './Modal';
 const ROLE_OPTIONS = [
   { id: 'admin', label: 'Admin FILKOM', variant: 'purple' },
   { id: 'bem', label: 'BEM / Panitia', variant: 'blue' },
-  { id: 'committee', label: 'Panitia Event', variant: 'blue' },
   { id: 'student', label: 'Mahasiswa FILKOM', variant: 'green' },
 ];
 const EMPTY_USER = { name: '', email: '', password: '', role: 'bem' };
@@ -105,12 +104,12 @@ export default function UserManagement() {
       setError('Masukkan alamat email yang valid.');
       return;
     }
-    if (form.password.length < 8) {
-      setError('Kata sandi minimal 8 karakter.');
+    if (form.password.length < 6) {
+      setError('Kata sandi minimal 6 karakter.');
       return;
     }
-    if (users.some((user) => user.email?.toLowerCase() === email)) {
-      setError('Email tersebut sudah digunakan akun lain.');
+    if (users.some((user) => user.email?.toLowerCase() === email && user.role === form.role)) {
+      setError(`Email tersebut sudah terdaftar untuk role ${roleLabel(form.role)}.`);
       return;
     }
     const id = `user-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`;
@@ -171,7 +170,7 @@ export default function UserManagement() {
           <label className="block text-xs font-bold">Role<select required value={form.role} onChange={setField('role')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm">{ROLE_OPTIONS.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
           <label className="block text-xs font-bold">Nama lengkap<input required maxLength={120} value={form.name} onChange={setField('name')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Nama pengguna" /></label>
           <label className="block text-xs font-bold">Email<input required type="email" value={form.email} onChange={setField('email')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="nama@unklab.ac.id" /></label>
-          <label className="block text-xs font-bold">Kata sandi awal<input required minLength={8} type="password" value={form.password} onChange={setField('password')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Minimal 8 karakter" /></label>
+          <label className="block text-xs font-bold">Kata sandi awal<input required minLength={6} type="password" value={form.password} onChange={setField('password')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Minimal 6 karakter" /></label>
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">Untuk demonstrasi akademik, kata sandi disimpan di JSON Server simulasi. Jangan gunakan kata sandi akun sungguhan.</p>
         </form>
       </Modal>

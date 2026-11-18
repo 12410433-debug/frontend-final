@@ -42,13 +42,16 @@ export default function EventManagementPage() {
   const location = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isBemOfficial = String(user?.email || '').trim().toLowerCase() === 'bemfilkomm@gmail.com';
+  const isFullAccess = isAdmin || isBemOfficial;
+  const assignedOnly = !isFullAccess;
   const basePath = isAdmin ? '/admin' : '/bem';
   const modules = dashboardModules(basePath, isAdmin);
   const view = location.pathname.split('/')[2] || 'overview';
-  if (view === 'events') return <EventManagement />;
-  if (view === 'announcements') return <AnnouncementManagement />;
-  if (view === 'attendance') return <AttendanceManagement />;
-  if (view === 'certificates' || view === 'certificate-templates') return <CertificateTemplateManagement />;
+  if (view === 'events') return <EventManagement assignedOnly={assignedOnly} />;
+  if (view === 'announcements') return <AnnouncementManagement assignedOnly={assignedOnly} />;
+  if (view === 'attendance') return <AttendanceManagement assignedOnly={assignedOnly} />;
+  if (view === 'certificates' || view === 'certificate-templates') return <CertificateTemplateManagement assignedOnly={assignedOnly} />;
   if (view === 'users' && isAdmin) return <UserManagement />;
 
   return (

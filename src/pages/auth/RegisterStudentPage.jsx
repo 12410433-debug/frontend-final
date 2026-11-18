@@ -75,6 +75,10 @@ export default function RegisterStudentPage() {
       setErrorMessage('Silakan masukkan alamat email mahasiswa Anda.');
       return;
     }
+    if (!email.trim().toLowerCase().endsWith('@student.unklab.ac.id')) {
+      setErrorMessage('Pendaftaran hanya dapat menggunakan email resmi mahasiswa Universitas Klabat (@student.unklab.ac.id).');
+      return;
+    }
     if (!phone.trim()) {
       setErrorMessage('Silakan masukkan nomor telepon / WhatsApp.');
       return;
@@ -255,7 +259,7 @@ export default function RegisterStudentPage() {
                   startIcon={Mail}
                   value={formData.email}
                   onChange={handleChange('email')}
-                  helperText="Gunakan email kampus Universitas Klabat Anda."
+                  helperText="Hanya menerima email resmi mahasiswa: @student.unklab.ac.id"
                 />
               </div>
 

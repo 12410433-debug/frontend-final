@@ -21,6 +21,11 @@ function formatDateTime(value) {
 
 export default function AttendanceManagement({ assignedOnly = false, canScan = true, initialEventId = '' }) {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isBemOfficial = String(user?.email || '').trim().toLowerCase() === 'bemfilkomm@gmail.com';
+  const isFullAccess = isAdmin || isBemOfficial;
+  const effectiveAssignedOnly = !isFullAccess || assignedOnly;
+
   const userId = user?.id;
   const scannerId = `attendance-qr-reader-${useId().replace(/:/g, '')}`;
   const [events, setEvents] = useState([]);
@@ -53,7 +58,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
 
   useEffect(() => {
     let active = true;
-    attendanceService.getEvents({ organizerId: userId, assignedOnly })
+    attendanceService.getEvents({ organizerId: userId, assignedOnly: effectiveAssignedOnly })
       .then((data) => {
         if (active) {
           setEvents(data);
@@ -67,17 +72,17 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
       .catch(() => { if (active) setRosterError('Daftar event absensi gagal dimuat dari JSON Server.'); })
       .finally(() => { if (active) setEventsLoading(false); });
     return () => { active = false; };
-  }, [userId, assignedOnly, initialEventId]);
+  }, [userId, effectiveAssignedOnly, initialEventId]);
 
   useEffect(() => {
     if (!selectedEventId) return undefined;
     let active = true;
-    attendanceService.getRoster(selectedEventId, { organizerId: userId, assignedOnly })
+    attendanceService.getRoster(selectedEventId, { organizerId: userId, assignedOnly: effectiveAssignedOnly })
       .then(({ participants: rows }) => { if (active) setParticipants(rows); })
       .catch((error) => { if (active) setRosterError(error.message || 'Daftar peserta gagal dimuat.'); })
       .finally(() => { if (active) setRosterLoading(false); });
     return () => { active = false; };
-  }, [selectedEventId, userId, assignedOnly, refreshKey]);
+  }, [selectedEventId, userId, effectiveAssignedOnly, refreshKey]);
 
   const presentCount = useMemo(() => participants.filter((item) => item.status === 'hadir').length, [participants]);
   const lateCount = useMemo(() => participants.filter((item) => item.status === 'terlambat').length, [participants]);
@@ -94,7 +99,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
     try {
       const result = await attendanceService.checkIn(rawCode, selectedEventId, {
         organizerId: userId,
-        assignedOnly,
+        assignedOnly: effectiveAssignedOnly,
         status: checkInStatus,
       });
       let certificateNotice = '';
@@ -117,7 +122,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
       setProcessing(false);
       window.setTimeout(() => { scanLock.current = false; }, 900);
     }
-  }, [selectedEventId, assignedOnly, canScan, userId, checkInStatus]);
+  }, [selectedEventId, effectiveAssignedOnly, canScan, userId, checkInStatus]);
 
   useEffect(() => {
     scannerCallback.current = processCode;
@@ -155,7 +160,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
     try {
       await attendanceService.updateStatus(regId, newStatus, {
         organizerId: userId,
-        assignedOnly,
+        assignedOnly: effectiveAssignedOnly,
       });
 
       let certificateNotice = '';
@@ -224,7 +229,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
       const result = await attendanceService.removeParticipant(registration.id, {
         role: user?.role,
         organizerId: userId,
-        assignedOnly,
+        assignedOnly: effectiveAssignedOnly,
       });
       setParticipants((current) => current.filter((item) => String(item.registration.id) !== registrationId));
       setEvents((current) => current.map((item) => String(item.id) === String(result.event.id) ? result.event : item));
@@ -383,7 +388,7 @@ export default function AttendanceManagement({ assignedOnly = false, canScan = t
         {eventsLoading || (selectedEvent && rosterLoading) ? (
           <p className="p-8 text-center text-sm text-blue-800">Memuat absensi...</p>
         ) : !selectedEvent ? (
-          <p className="p-8 text-center text-sm text-slate-600">{assignedOnly ? 'Belum ada event yang ditugaskan ke akun panitia ini.' : 'Pilih event untuk melihat absensi.'}</p>
+          <p className="p-8 text-center text-sm text-slate-600">{effectiveAssignedOnly ? 'Belum ada event yang ditugaskan ke akun panitia ini.' : 'Pilih event untuk melihat absensi.'}</p>
         ) : participants.length === 0 ? (
           <p className="p-8 text-center text-sm text-slate-600">Belum ada peserta terdaftar pada event ini.</p>
         ) : (
