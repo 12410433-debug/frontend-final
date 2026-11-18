@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowUpRight, Bell, CalendarDays, FileImage, QrCode, Sparkles, Users } from 'lucide-react';
+import { ArrowUpRight, Bell, CalendarDays, Sparkles, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import EventManagement from '../../components/EventManagement';
 import AnnouncementManagement from '../../components/AnnouncementManagement';
@@ -9,11 +9,32 @@ import UserManagement from '../../components/UserManagement';
 
 function dashboardModules(basePath, isAdmin) {
   return [
-    { title: 'Kelola Event', description: 'Buat, publikasikan, dan pantau kegiatan FILKOM.', path: `${basePath}/events`, icon: CalendarDays, color: 'from-blue-600 to-indigo-600', detail: 'Jadwal · Kuota · Status' },
-    { title: 'Pengumuman', description: 'Sampaikan informasi umum atau khusus event.', path: `${basePath}/announcements`, icon: Bell, color: 'from-cyan-500 to-blue-600', detail: 'Draft · Publikasi · Pin' },
-    { title: 'Peserta & Absensi', description: 'Pantau peserta, absensi, dan unduh rekap Excel.', path: `${basePath}/attendance`, icon: QrCode, color: 'from-violet-500 to-indigo-600', detail: 'Pendaftar · Kehadiran · Excel' },
-    { title: 'Template & Sertifikat', description: 'Atur template dan terbitkan sertifikat otomatis setelah peserta hadir.', path: `${basePath}/certificates`, icon: FileImage, color: 'from-sky-500 to-blue-700', detail: 'Template · Penerbitan otomatis' },
-    ...(isAdmin ? [{ title: 'Kelola Pengguna', description: 'Lihat akun terpisah per role dan buat akun baru.', path: `${basePath}/users`, icon: Users, color: 'from-violet-600 to-purple-700', detail: 'Admin · BEM · Mahasiswa' }] : []),
+    {
+      title: 'Kelola Event',
+      description: 'Kelola seluruh kegiatan FILKOM lengkap dengan daftar peserta, absensi QR code, dan sertifikat.',
+      path: `${basePath}/events`,
+      icon: CalendarDays,
+      color: 'from-blue-600 to-indigo-600',
+      detail: 'Event · Peserta & Absensi · Sertifikat',
+    },
+    {
+      title: 'Pengumuman',
+      description: 'Sampaikan informasi umum atau pengumuman khusus event kegiatan.',
+      path: `${basePath}/announcements`,
+      icon: Bell,
+      color: 'from-cyan-500 to-blue-600',
+      detail: 'Draft · Publikasi · Pin',
+    },
+    ...(isAdmin
+      ? [{
+          title: 'Kelola Pengguna',
+          description: 'Lihat dan kelola akun pengguna (Admin, BEM Panitia, Mahasiswa).',
+          path: `${basePath}/users`,
+          icon: Users,
+          color: 'from-violet-600 to-purple-700',
+          detail: 'Admin · BEM · Mahasiswa',
+        }]
+      : []),
   ];
 }
 

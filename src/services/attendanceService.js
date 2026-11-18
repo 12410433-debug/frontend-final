@@ -39,7 +39,9 @@ export const attendanceService = {
           attendance: attendanceRecord,
           student: student || null,
           event,
-          status: attendanceRecord?.status === 'hadir' || attendanceRecord?.attendanceTime
+          status: attendanceRecord?.status === 'terlambat'
+            ? 'terlambat'
+            : attendanceRecord?.status === 'hadir' || attendanceRecord?.attendanceTime
             ? 'hadir'
             : 'belum_hadir',
           attendanceTime: attendanceRecord?.attendanceTime || null,
@@ -92,7 +94,7 @@ export const attendanceService = {
     return { registration, event: updatedEvent };
   },
 
-  async checkIn(qrCode, eventId, { organizerId, assignedOnly = false } = {}) {
+  async checkIn(qrCode, eventId, { organizerId, assignedOnly = false, status = 'hadir' } = {}) {
     const code = String(qrCode || '').trim();
     if (!code) throw new Error('Masukkan atau pindai kode QR terlebih dahulu.');
 
@@ -127,8 +129,9 @@ export const attendanceService = {
       String(record.registrationId) === String(registration.id)
         && String(record.eventId) === String(event.id)
     ));
-    if (matchingAttendance.some((record) => record.status === 'hadir' || record.attendanceTime)) {
-      throw new Error(`${student.name} sudah tercatat hadir pada event ini.`);
+    if (matchingAttendance.some((record) => (record.status === 'hadir' || record.status === 'terlambat') && record.attendanceTime)) {
+      const currentStatusLabel = matchingAttendance[0].status === 'terlambat' ? 'Terlambat (Late)' : 'Hadir';
+      throw new Error(`${student.name} sudah tercatat ${currentStatusLabel} pada event ini.`);
     }
     const existing = matchingAttendance[0];
 
@@ -138,7 +141,7 @@ export const attendanceService = {
       eventId: String(event.id),
       studentId: String(student.id),
       attendanceTime,
-      status: 'hadir',
+      status: status === 'terlambat' ? 'terlambat' : 'hadir',
     };
     let attendanceRecord;
     if (existing) {
@@ -149,6 +152,45 @@ export const attendanceService = {
       attendanceRecord = data;
     }
     return { attendance: attendanceRecord, registration, student, event };
+  },
+
+  async updateStatus(registrationId, newStatus, { organizerId, assignedOnly = false } = {}) {
+    if (!registrationId) throw new Error('ID pendaftaran wajib diisi.');
+    const { data: registration } = await jsonServerApi.get(`/registrations/${registrationId}`);
+    const { data: event } = await jsonServerApi.get(`/events/${registration.eventId}`);
+    if (!isAssigned(event, organizerId, assignedOnly)) {
+      throw new Error('Anda tidak memiliki akses untuk mengubah absensi event ini.');
+    }
+
+    const { data: attendanceList } = await jsonServerApi.get('/attendance', { params: { registrationId: registration.id } });
+    const existing = attendanceList.find((record) => String(record.registrationId) === String(registration.id) && String(record.eventId) === String(event.id));
+
+    if (newStatus === 'belum_hadir') {
+      if (existing) {
+        await jsonServerApi.delete(`/attendance/${existing.id}`);
+      }
+      return { status: 'belum_hadir', attendanceTime: null, registration, event };
+    }
+
+    const attendanceTime = existing?.attendanceTime || new Date().toISOString();
+    const payload = {
+      registrationId: String(registration.id),
+      eventId: String(event.id),
+      studentId: String(registration.studentId),
+      attendanceTime,
+      status: newStatus === 'terlambat' ? 'terlambat' : 'hadir',
+    };
+
+    let updatedAttendance;
+    if (existing) {
+      const { data } = await jsonServerApi.patch(`/attendance/${existing.id}`, payload);
+      updatedAttendance = data;
+    } else {
+      const { data } = await jsonServerApi.post('/attendance', payload);
+      updatedAttendance = data;
+    }
+
+    return { attendance: updatedAttendance, status: newStatus, attendanceTime, registration, event };
   },
 };
 

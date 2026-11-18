@@ -1,3 +1,4 @@
+import { jsPDF } from 'jspdf';
 import { sendEmail, getSmtpStatus, verifySmtpConnection } from './emailNotifier.js';
 
 const JSON_SERVER_URL = () => (process.env.JSON_SERVER_URL || 'http://localhost:3001').replace(/\/+$/, '');
@@ -61,7 +62,7 @@ function requireSmtp() {
   }
 }
 
-async function deliverToRecipients({ type, sourceId, eventId = null, recipients, subject, makeBody }) {
+async function deliverToRecipients({ type, sourceId, eventId = null, recipients, subject, makeBody, force = false }) {
   requireSmtp();
   const logs = await readCollection('notifications');
   const alreadySent = new Set(logs
@@ -73,12 +74,12 @@ async function deliverToRecipients({ type, sourceId, eventId = null, recipients,
   let skipped = 0;
 
   for (const recipient of recipients) {
-    if (alreadySent.has(String(recipient.id))) {
+    if (!force && alreadySent.has(String(recipient.id))) {
       skipped += 1;
       continue;
     }
 
-    const body = makeBody(recipient);
+    const body = await makeBody(recipient);
     const attemptedAt = new Date().toISOString();
     try {
       await sendEmail({
@@ -86,6 +87,7 @@ async function deliverToRecipients({ type, sourceId, eventId = null, recipients,
         subject,
         text: body.text,
         html: body.html,
+        attachments: body.attachments,
       });
       await writeNotification({
         type,
@@ -187,16 +189,105 @@ export async function notifyPaymentApproved(registrationId, actorId) {
   return { success: true, message: 'Notifikasi persetujuan pembayaran diproses.', ...result };
 }
 
+function generateCertificatePdfBuffer(certificate, student, event, template) {
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const width = 297;
+  const height = 210;
+  const center = width / 2;
+
+  pdf.setProperties({
+    title: `Sertifikat ${certificate.certificateNumber}`,
+    subject: `Sertifikat partisipasi ${event.title}`,
+    author: 'Fakultas Ilmu Komputer Universitas Klabat',
+  });
+
+  if (template?.imageDataUrl) {
+    const imageFormat = template.mimeType === 'image/png' ? 'PNG' : 'JPEG';
+    pdf.addImage(template.imageDataUrl, imageFormat, 0, 0, width, height);
+    const hex = template.nameColor || '#1e3a8a';
+    const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+    const [red, green, blue] = match ? match.slice(1).map((part) => parseInt(part, 16)) : [30, 58, 138];
+    const nameX = width * (Number(template.nameX ?? 50) / 100);
+    const nameY = height * (Number(template.nameY ?? 55) / 100);
+    pdf.setTextColor(red, green, blue);
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(Number(template.fontSize ?? 28));
+    pdf.text(student.name, nameX, nameY, { align: 'center', maxWidth: width - 34 });
+  } else {
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(0, 0, width, height, 'F');
+    pdf.setFillColor(30, 58, 138);
+    pdf.rect(0, 0, width, 25, 'F');
+    pdf.setFillColor(37, 99, 235);
+    pdf.rect(0, 25, width, 2, 'F');
+
+    pdf.setDrawColor(30, 58, 138);
+    pdf.setLineWidth(1.2);
+    pdf.rect(9, 9, width - 18, height - 18);
+    pdf.setDrawColor(191, 219, 254);
+    pdf.setLineWidth(0.45);
+    pdf.rect(12, 12, width - 24, height - 24);
+
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(16);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text('FAKULTAS ILMU KOMPUTER - UNIVERSITAS KLABAT', center, 16, { align: 'center' });
+
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(28);
+    pdf.setTextColor(30, 58, 138);
+    pdf.text('SERTIFIKAT PENGHARGAAN', center, 55, { align: 'center' });
+
+    pdf.setFont('times', 'italic');
+    pdf.setFontSize(12);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text('Diberikan dengan bangga kepada:', center, 72, { align: 'center' });
+
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(24);
+    pdf.setTextColor(23, 37, 84);
+    pdf.text(student.name, center, 88, { align: 'center' });
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text(`NIM: ${student.nim || '-'}  |  ${student.major || 'Fakultas Ilmu Komputer'}`, center, 96, { align: 'center' });
+
+    pdf.setFont('times', 'normal');
+    pdf.setFontSize(12);
+    pdf.setTextColor(51, 65, 85);
+    pdf.text('Atas partisipasi dan kehadirannya dalam kegiatan:', center, 114, { align: 'center' });
+
+    pdf.setFont('times', 'bold');
+    pdf.setFontSize(18);
+    pdf.setTextColor(30, 58, 138);
+    pdf.text(event.title, center, 126, { align: 'center' });
+
+    pdf.setFont('times', 'normal');
+    pdf.setFontSize(10.5);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text(`Diselenggarakan pada tanggal ${event.date || '-'} di ${event.location || 'Universitas Klabat'}`, center, 136, { align: 'center' });
+
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(`Nomor Sertifikat: ${certificate.certificateNumber}`, center, 185, { align: 'center' });
+    pdf.text(`Diterbitkan pada: ${new Date(certificate.issuedAt).toLocaleDateString('id-ID', { dateStyle: 'long' })}`, center, 192, { align: 'center' });
+  }
+
+  return Buffer.from(pdf.output('arraybuffer'));
+}
+
 export async function notifyCertificateIssued(certificateId, actorId) {
   if (typeof certificateId !== 'string' && typeof certificateId !== 'number') {
     throw httpError(400, 'ID sertifikat wajib diisi.');
   }
-  const [certificates, registrations, attendance, events, users] = await Promise.all([
+  const [certificates, registrations, attendance, events, users, certificateTemplates] = await Promise.all([
     readCollection('certificates'),
     readCollection('registrations'),
     readCollection('attendance'),
     readCollection('events'),
     readCollection('users'),
+    readCollection('certificateTemplates'),
   ]);
   const certificate = certificates.find((item) => String(item.id) === String(certificateId));
   if (!certificate) throw httpError(404, 'Sertifikat tidak ditemukan.');
@@ -214,7 +305,7 @@ export async function notifyCertificateIssued(certificateId, actorId) {
     String(item.registrationId) === String(registration.id)
       && String(item.eventId) === String(registration.eventId)
       && String(item.studentId) === String(registration.studentId)
-      && item.status === 'hadir'
+      && (item.status === 'hadir' || item.status === 'terlambat')
   ));
   if (!attended) throw httpError(409, 'Sertifikat hanya dapat diberitahukan setelah kehadiran tervalidasi.');
   const event = events.find((item) => String(item.id) === String(registration.eventId));
@@ -222,6 +313,39 @@ export async function notifyCertificateIssued(certificateId, actorId) {
   if (!event || !student || student.role !== 'student' || student.status !== 'active' || !student.email?.includes('@')) {
     throw httpError(409, 'Data event atau email mahasiswa tidak tersedia.');
   }
+
+  const template = certificateTemplates.find((item) => String(item.eventId || '') === String(event.id))
+    || certificateTemplates.find((item) => !item.eventId)
+    || null;
+
+  let attachments = [];
+  let previewCid = null;
+  const safeName = (certificate.certificateNumber || 'Sertifikat').replace(/[^a-zA-Z0-9-]/g, '_');
+
+  try {
+    const pdfBuf = generateCertificatePdfBuffer(certificate, student, event, template);
+    attachments.push({
+      filename: `Sertifikat_${safeName}.pdf`,
+      content: pdfBuf,
+      contentType: 'application/pdf',
+    });
+
+    if (template?.imageDataUrl?.startsWith('data:')) {
+      const match = template.imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (match && match[2]) {
+        previewCid = 'certificate_preview_image';
+        attachments.push({
+          filename: `Sertifikat_${safeName}.jpg`,
+          content: Buffer.from(match[2], 'base64'),
+          contentType: match[1] || 'image/jpeg',
+          cid: previewCid,
+        });
+      }
+    }
+  } catch (pdfErr) {
+    console.error('Gagal membuat attachment PDF sertifikat:', pdfErr);
+  }
+
   const subject = '[FILKOM] Sertifikat Anda telah terbit - ' + event.title;
   const result = await deliverToRecipients({
     type: 'certificate_issued',
@@ -229,19 +353,54 @@ export async function notifyCertificateIssued(certificateId, actorId) {
     eventId: event.id,
     recipients: [student],
     subject,
+    force: true,
     makeBody: (recipient) => {
       const text = 'Halo ' + (recipient.name || 'Mahasiswa FILKOM') + ',\n\n'
-        + 'Sertifikat digital Anda telah diterbitkan.\nEvent: ' + event.title + '\n'
+        + 'Selamat! Sertifikat digital Anda telah diterbitkan untuk kegiatan: ' + event.title + '\n'
         + 'Nomor sertifikat: ' + certificate.certificateNumber + '\n\n'
-        + 'Buka menu Sertifikat Saya untuk melihat dan mengunduh PDF sertifikat.';
-      const html = '<div style="font-family:Arial,sans-serif;color:#172554;max-width:640px">'
-        + '<div style="background:#1d4ed8;color:white;padding:20px;border-radius:12px"><strong>FILKOM Event Management</strong></div>'
-        + '<p>Halo ' + safeHtml(recipient.name || 'Mahasiswa FILKOM') + ',</p>'
-        + '<p>Sertifikat digital Anda telah diterbitkan.</p><h2>' + safeHtml(event.title) + '</h2>'
-        + '<p><strong>Nomor sertifikat:</strong> ' + safeHtml(certificate.certificateNumber) + '</p>'
-        + '<p>Buka menu Sertifikat Saya untuk melihat dan mengunduh PDF sertifikat.</p>'
-        + '<hr><small>FILKOM Universitas Klabat</small></div>';
-      return { text, html };
+        + 'File PDF sertifikat resmi telah dilampirkan pada email ini. Anda dapat langsung mengunduh dan menyimpannya.';
+
+      const previewHtml = previewCid ? (
+        `<div style="margin: 20px 0; text-align: center;">
+          <img src="cid:${previewCid}" alt="Pratinjau Sertifikat" style="max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #bfdbfe; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />
+        </div>`
+      ) : (
+        `<div style="margin: 20px 0; padding: 26px 20px; border: 2px solid #1e3a8a; border-radius: 12px; background: #ffffff; text-align: center; box-shadow: 0 4px 12px rgba(30,58,138,0.06);">
+          <div style="font-size: 11px; font-weight: bold; color: #1e3a8a; letter-spacing: 2px; text-transform: uppercase;">Fakultas Ilmu Komputer - Universitas Klabat</div>
+          <div style="font-size: 22px; font-weight: 800; color: #1e3a8a; margin: 14px 0 6px 0; font-family: Georgia, serif;">SERTIFIKAT PENGHARGAAN</div>
+          <div style="font-size: 12px; color: #64748b; font-style: italic;">Diberikan dengan bangga kepada:</div>
+          <div style="font-size: 20px; font-weight: bold; color: #0f172a; margin: 10px 0 4px 0;">${safeHtml(recipient.name || 'Mahasiswa FILKOM')}</div>
+          <div style="font-size: 11px; color: #64748b;">NIM: ${safeHtml(student.nim || '-')} &bull; ${safeHtml(student.major || 'FILKOM')}</div>
+          <div style="margin: 14px auto; width: 50px; height: 2px; background: #3b82f6;"></div>
+          <div style="font-size: 12px; color: #475569;">Atas partisipasi dan kehadirannya dalam kegiatan:</div>
+          <div style="font-size: 16px; font-weight: bold; color: #1e3a8a; margin: 6px 0;">${safeHtml(event.title)}</div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 18px;">Nomor Sertifikat: <strong>${safeHtml(certificate.certificateNumber)}</strong> &bull; Diterbitkan: ${new Date(certificate.issuedAt).toLocaleDateString('id-ID', { dateStyle: 'long' })}</div>
+        </div>`
+      );
+
+      const html = `<div style="font-family:Arial,sans-serif;color:#172554;max-width:640px;margin:0 auto;padding:16px;">
+        <div style="background:#1d4ed8;color:white;padding:18px 24px;border-radius:12px;margin-bottom:20px;">
+          <strong style="font-size:16px;">FILKOM Event Management</strong>
+          <div style="font-size:11px;opacity:0.9;margin-top:2px;">Universitas Klabat</div>
+        </div>
+        <p style="font-size:14px;margin-bottom:6px;">Halo <strong>${safeHtml(recipient.name || 'Mahasiswa FILKOM')}</strong>,</p>
+        <p style="font-size:13px;color:#334155;line-height:1.5;">Selamat! Sertifikat resmi Anda untuk kegiatan <strong>${safeHtml(event.title)}</strong> telah berhasil diterbitkan.</p>
+        
+        ${previewHtml}
+
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 18px;margin-top:20px;">
+          <strong style="color:#1e40af;font-size:13px;">📎 File PDF Sertifikat Terlampir:</strong>
+          <p style="margin:4px 0 0 0;font-size:12px;color:#1e3a8a;">
+            File <strong>Sertifikat_${safeName}.pdf</strong> telah disertakan sebagai lampiran pada email ini. Anda dapat langsung mengunduh dan menyimpannya.
+          </p>
+        </div>
+        
+        <p style="font-size:11px;color:#94a3b8;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;text-align:center;">
+          Fakultas Ilmu Komputer &bull; Universitas Klabat
+        </p>
+      </div>`;
+
+      return { text, html, attachments };
     },
   });
   return { success: true, message: 'Notifikasi sertifikat diproses.', ...result };

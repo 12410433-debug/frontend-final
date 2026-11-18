@@ -207,6 +207,19 @@ export default function LoginPage() {
             </div>
           </form>
 
+          {/* Link Registrasi Akun Mahasiswa */}
+          {(!role || currentRole.role === 'student') && (
+            <div className="mt-5 pt-4 border-t border-[#BFDBFE] text-center text-xs text-[#1E3A8A]">
+              Belum memiliki akun mahasiswa?{' '}
+              <Link
+                to="/register/student"
+                className="font-bold text-[#2563EB] hover:text-[#1D4ED8] hover:underline"
+              >
+                Daftar Mahasiswa di sini &rarr;
+              </Link>
+            </div>
+          )}
+
           {/* Informasi Akun Demo */}
           <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-xs text-[#1E3A8A]">
             <p className="font-bold text-[#172554]">Akun Demo {currentRole.badge}:</p>

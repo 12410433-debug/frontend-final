@@ -13,16 +13,17 @@ function getClient() {
     error.statusCode = 503;
     throw error;
   }
-  if (!apiKey.startsWith('AIzaSy')) {
+  if (!apiKey.startsWith('AIzaSy') && !apiKey.startsWith('AQ.')) {
     console.warn(
-      '⚠️ PERINGATAN FORMAT API KEY: Kunci GEMINI_API_KEY Anda tidak diawali dengan "AIzaSy".\n' +
-      'Google AI Studio API key resmi selalu diawali dengan "AIzaSy" (39 karakter).\n' +
+      '⚠️ PERINGATAN FORMAT API KEY: Kunci GEMINI_API_KEY tidak dikenali.\n' +
+      'Google AI Studio key biasanya diawali dengan "AIzaSy" (39 karakter).\n' +
       'Dapatkan kunci API resmi gratis di: https://aistudio.google.com/app/apikey'
     );
   }
   if (!cachedClient || cachedApiKey !== apiKey) {
     cachedApiKey = apiKey;
-    cachedClient = new GoogleGenAI({ apiKey });
+    // Gunakan v1beta agar model seperti gemini-3.8-flash dapat diakses
+    cachedClient = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta' } });
   }
   return cachedClient;
 }
@@ -32,13 +33,12 @@ export async function generateContent(prompt, { responseSchema } = {}) {
   const configuredModel = process.env.GEMINI_MODEL?.trim();
 
   // Model publik resmi Google Gemini API
-  // 'gemini-3.8-flash' bukan nama model publik Google AI Studio, maka dinormalisasi ke 'gemini-2.5-flash'
-  const primaryModel = (!configuredModel || configuredModel === 'gemini-3.8-flash')
-    ? 'gemini-2.5-flash'
-    : configuredModel;
+  // Prioritaskan gemini-3.8-flash yang kompatibel dengan endpoint v1beta
+  const primaryModel = configuredModel || 'gemini-3.8-flash';
 
   const candidateModels = [
     primaryModel,
+    'gemini-3.8-flash',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
@@ -71,7 +71,7 @@ export async function generateContent(prompt, { responseSchema } = {}) {
   console.error('Gemini API request failed final:', detail);
 
   let message;
-  if (!process.env.GEMINI_API_KEY?.trim()?.startsWith('AIzaSy')) {
+  if (!process.env.GEMINI_API_KEY?.trim()?.startsWith('AIzaSy') && !process.env.GEMINI_API_KEY?.trim()?.startsWith('AQ.')) {
     message = 'GEMINI_API_KEY tidak valid. API Key Google AI Studio resmi harus diawali dengan "AIzaSy" (39 karakter). Buat kunci di https://aistudio.google.com/app/apikey lalu simpan di file .env.';
   } else if (/API_KEY_INVALID|API key not valid|key not found|invalid api key/i.test(detail)) {
     message = 'GEMINI_API_KEY tidak valid atau telah dicabut oleh Google. Silakan buat API Key baru di https://aistudio.google.com/app/apikey.';

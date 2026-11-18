@@ -9,7 +9,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "node server/index.js",
+    "server": "node --watch server/index.js",
     "mock": "node scripts/json-server.js",
     "db": "node scripts/json-server.js"
   },

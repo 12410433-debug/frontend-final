@@ -49,17 +49,24 @@ async function compressAsDataUrl(file) {
   }
 }
 
-export default function CertificateTemplateManagement() {
+export default function CertificateTemplateManagement({ initialEventId = 'default' }) {
   const { user } = useAuth();
   const [events, setEvents] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [eventId, setEventId] = useState('default');
-  const [templateDraft, setTemplateDraft] = useState({ eventId: 'default', value: null });
+  const [prevInitialId, setPrevInitialId] = useState(initialEventId);
+  const [eventId, setEventId] = useState(initialEventId || 'default');
+  const [templateDraft, setTemplateDraft] = useState({ eventId: initialEventId || 'default', value: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [certificateRefreshKey, setCertificateRefreshKey] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  if (initialEventId !== prevInitialId) {
+    setPrevInitialId(initialEventId);
+    setEventId(initialEventId || 'default');
+    setTemplateDraft({ eventId: initialEventId || 'default', value: null });
+  }
 
   useEffect(() => {
     let active = true;
@@ -174,12 +181,6 @@ export default function CertificateTemplateManagement() {
       {error && <Alert type="error" message={error} onClose={() => setError('')} />}
       {loading ? <Card className="p-6 text-sm text-blue-800">Memuat template...</Card> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)]">
         <Card className="space-y-5 p-5 sm:p-6">
-          <label className="block text-sm font-bold">Terapkan ke event
-            <select value={eventId} onChange={(event) => setEventId(event.target.value)} className="mt-2 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm">
-              <option value="default">Template default (semua event tanpa template khusus)</option>
-              {events.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-            </select>
-          </label>
           <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/70 px-5 py-8 text-center transition hover:border-blue-500">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-sm"><Upload className="h-5 w-5" /></span>
             <span className="mt-3 text-sm font-extrabold">{template?.fileName || 'Unggah desain sertifikat'}</span>
@@ -205,7 +206,7 @@ export default function CertificateTemplateManagement() {
           <p className="mt-3 text-xs leading-relaxed text-slate-600">Posisi nama pada pratinjau juga dipakai saat PDF dibuat. Template khusus event mengungguli template default.</p>
         </Card>
       </div>}
-      {!loading && <CertificateManagement refreshKey={certificateRefreshKey} />}
+      {!loading && <CertificateManagement refreshKey={certificateRefreshKey} eventId={eventId} />}
     </section>
   );
 }

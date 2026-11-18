@@ -53,17 +53,47 @@ async function createOrUpdateStudentProfile(profile) {
 export const registrationService = {
   async getForStudent(studentId) {
     await verifyStudent(studentId);
-    const [{ data: registrations }, { data: events }] = await Promise.all([
+    const [{ data: registrations }, { data: events }, { data: attendance }, { data: certificates }, { data: templates }] = await Promise.all([
       jsonServerApi.get('/registrations', { params: { studentId } }),
       jsonServerApi.get('/events'),
+      jsonServerApi.get('/attendance', { params: { studentId } }),
+      jsonServerApi.get('/certificates', { params: { studentId } }),
+      jsonServerApi.get('/certificateTemplates'),
     ]);
     const eventById = new Map(events.map((event) => [String(event.id), event]));
+    const attendanceByRegistration = new Map(attendance.map((att) => [String(att.registrationId), att]));
+    const certificateByRegistration = new Map(certificates.map((cert) => [String(cert.registrationId), cert]));
+
     const rows = registrations
-      .filter((registration) => String(registration.studentId) === String(studentId))
-      .map((registration) => ({
-        ...registration,
-        event: eventById.get(String(registration.eventId)) || null,
-      }))
+      .filter((registration) => {
+        if (String(registration.studentId) !== String(studentId)) return false;
+        const event = eventById.get(String(registration.eventId));
+        if (!event || !registration.eventId) {
+          jsonServerApi.delete(`/registrations/${registration.id}`).catch(() => {});
+          return false;
+        }
+        return true;
+      })
+      .map((registration) => {
+        const event = eventById.get(String(registration.eventId));
+        const att = attendanceByRegistration.get(String(registration.id));
+        const cert = certificateByRegistration.get(String(registration.id));
+        const isAttended = att?.status === 'hadir' || att?.status === 'terlambat';
+        const isEventCompleted = event?.status === 'completed';
+        const hasCertificate = Boolean(cert || isAttended || isEventCompleted);
+        const eventTemplate = templates.find((t) => String(t.eventId || '') === String(event?.id))
+          || templates.find((t) => !t.eventId)
+          || null;
+        return {
+          ...registration,
+          event,
+          attendance: att || null,
+          isAttended,
+          certificate: cert || null,
+          hasCertificate,
+          template: eventTemplate,
+        };
+      })
       .sort((a, b) => String(b.registrationDate).localeCompare(String(a.registrationDate)));
 
     return Promise.all(rows.map(async (registration) => {

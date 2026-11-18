@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-  Award, Bell, Calendar, CalendarDays, ChevronRight, FileImage, GraduationCap,
-  LayoutDashboard, LogOut, PlusCircle, ShieldCheck, Sparkles,
-  Ticket, Users, X, AlertTriangle,
+  Bell, Calendar, CalendarDays, ChevronRight, GraduationCap,
+  LayoutDashboard, LogOut, ShieldCheck, Sparkles,
+  Ticket, Users, User, X, AlertTriangle,
 } from 'lucide-react';
 import Modal from './Modal';
 import Button from './Button';
@@ -21,10 +21,7 @@ function navItemsFor(role) {
     return [
       { label: `Dashboard ${role === 'admin' ? 'Admin' : 'BEM'}`, path: root, icon: LayoutDashboard },
       { label: 'Kelola Event', path: `${root}/events`, icon: CalendarDays },
-      { label: 'Buat Event Baru', path: `${root}/events#create-event`, icon: PlusCircle, action: 'create-event' },
       { label: 'Pengumuman', path: `${root}/announcements`, icon: Bell },
-      { label: 'Peserta & Rekap Absensi', path: `${root}/attendance`, icon: Users },
-      { label: 'Template & Sertifikat', path: `${root}/certificates`, icon: FileImage },
       ...(role === 'admin' ? [{ label: 'Kelola Pengguna', path: `${root}/users`, icon: Users }] : []),
     ];
   }
@@ -33,7 +30,7 @@ function navItemsFor(role) {
     { label: 'AI Event Assistant', path: '/student/ai', icon: Sparkles },
     { label: 'Riwayat Pendaftaran', path: '/student/registrations', icon: Ticket },
     { label: 'Pengumuman Fakultas', path: '/student/announcements', icon: Bell },
-    { label: 'Sertifikat Saya', path: '/student/certificates', icon: Award },
+    { label: 'Akun Mahasiswa', path: '/student/profile', icon: User },
   ];
 }
 

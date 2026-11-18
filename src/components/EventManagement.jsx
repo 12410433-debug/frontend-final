@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Eye, ImagePlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Award, CalendarDays, Eye, ImagePlus, MapPin, Pencil, Plus, QrCode, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { jsonServerApi } from '../services/api';
 import eventApi from '../services/eventApi';
@@ -10,6 +10,8 @@ import Button from './Button';
 import Card, { CardHeader } from './Card';
 import Input from './Input';
 import Modal from './Modal';
+import AttendanceManagement from './AttendanceManagement';
+import CertificateTemplateManagement from './CertificateTemplateManagement';
 
 const CATEGORIES = ['Seminar', 'Workshop', 'Kompetisi', 'Pelatihan', 'Organisasi', 'Lainnya'];
 const STATUSES = ['draft', 'published', 'ongoing', 'completed', 'cancelled'];
@@ -29,8 +31,35 @@ const EMPTY_FORM = {
   mealEnabled: false, mealOptionsText: '', shirtEnabled: false, shirtSizes: [],
 };
 
+function formatTimeAMPM(timeStr) {
+  if (!timeStr) return '';
+  const trimmed = String(timeStr).trim();
+  if (/am|pm/i.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return trimmed;
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  if (Number.isNaN(hours)) return trimmed;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const formattedHour = String(hours).padStart(2, '0');
+  return `${formattedHour}:${minutes} ${period}`;
+}
+
+function formatEventTimeRange(startTime, endTime) {
+  if (!startTime && !endTime) return '';
+  const start = formatTimeAMPM(startTime);
+  const end = formatTimeAMPM(endTime);
+  if (start && end) return `${start} - ${end} WITA`;
+  if (start) return `${start} WITA`;
+  return `${end} WITA`;
+}
+
 function formatDate(date) {
-  if (!date) return 'â€”';
+  if (!date) return '-';
   return new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', {
     day: '2-digit', month: 'short', year: 'numeric',
   });
@@ -117,6 +146,7 @@ export default function EventManagement({ assignedOnly = false }) {
   const [detailsEvent, setDetailsEvent] = useState(null);
   const [deleteEvent, setDeleteEvent] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [activeEventSubView, setActiveEventSubView] = useState(null);
 
   const loadEvents = async () => {
     try {
@@ -365,6 +395,57 @@ export default function EventManagement({ assignedOnly = false }) {
 
   const setField = (name) => (e) => setForm((current) => ({ ...current, [name]: e.target.value }));
 
+  if (activeEventSubView) {
+    return (
+      <div className="space-y-5 text-[#172554]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#BFDBFE] bg-white p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={ArrowLeft}
+              onClick={() => {
+                setActiveEventSubView(null);
+                loadEvents();
+              }}
+            >
+              Kembali ke Kelola Event
+            </Button>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                {activeEventSubView.type === 'attendance'
+                  ? 'Kelola Peserta & Rekap Absensi Event'
+                  : 'Kelola Template & Sertifikat Event'}
+              </p>
+              <h2 className="text-lg sm:text-xl font-extrabold text-[#172554]">
+                {activeEventSubView.event.title}
+              </h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="blue">{activeEventSubView.event.category}</Badge>
+            <Badge variant={statusVariant(activeEventSubView.event.status)} dot>
+              {STATUS_LABELS[activeEventSubView.event.status] || activeEventSubView.event.status}
+            </Badge>
+          </div>
+        </div>
+
+        {activeEventSubView.type === 'attendance' && (
+          <AttendanceManagement
+            assignedOnly={assignedOnly}
+            initialEventId={String(activeEventSubView.event.id)}
+          />
+        )}
+
+        {activeEventSubView.type === 'certificates' && (
+          <CertificateTemplateManagement
+            initialEventId={String(activeEventSubView.event.id)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <section id="events" className="space-y-5 text-[#172554]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#BFDBFE] bg-white p-5 sm:p-6 shadow-sm">
@@ -395,19 +476,184 @@ export default function EventManagement({ assignedOnly = false }) {
           <div className="p-10 text-center text-sm text-slate-600"><CalendarDays className="mx-auto mb-2 h-8 w-8 text-blue-500" />Tidak ada event yang cocok dengan pencarian atau filter.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="bg-[#EFF6FF] text-xs uppercase text-[#1E3A8A]"><tr><th className="px-5 py-3">Event</th><th className="px-4 py-3">Jadwal</th><th className="px-4 py-3">Lokasi</th><th className="px-4 py-3">Kuota</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead>
+            <table className="w-full min-w-[960px] text-left text-sm">
+              <thead className="bg-[#EFF6FF] text-xs uppercase text-[#1E3A8A] font-extrabold tracking-wider border-b border-blue-100">
+                <tr>
+                  <th className="px-5 py-3.5 min-w-[240px]">Event</th>
+                  <th className="px-4 py-3.5 min-w-[160px]">Jadwal</th>
+                  <th className="px-4 py-3.5 min-w-[150px]">Lokasi</th>
+                  <th className="px-4 py-3.5 min-w-[110px]">Kuota</th>
+                  <th className="px-4 py-3.5 min-w-[130px]">Status</th>
+                  <th className="px-5 py-3.5 text-right min-w-[310px]">Aksi</th>
+                </tr>
+              </thead>
               <tbody className="divide-y divide-blue-100">
                 {visibleEvents.map((event) => {
                   const canManage = !assignedOnly || String(event.organizerId) === String(user?.id);
-                  return <tr key={event.id} className="hover:bg-blue-50/50">
-                    <td className="px-5 py-4"><div className="flex items-center gap-3">{event.poster ? <img src={event.poster} alt="" className="h-12 w-16 rounded-lg border border-blue-100 object-cover" /> : <div className="flex h-12 w-16 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><CalendarDays className="h-5 w-5" /></div>}<div><p className="font-bold">{event.title}</p><p className="mt-1 text-xs text-blue-800">{event.category} Â· {event.id}</p></div></div></td>
-                    <td className="px-4 py-4 whitespace-nowrap">{formatDate(event.date)}<div className="text-xs text-slate-500">{event.startTime}â€“{event.endTime}</div></td>
-                    <td className="max-w-48 truncate px-4 py-4">{event.location}</td>
-                    <td className="px-4 py-4">{event.registeredCount || 0} / {event.quota}</td>
-                    <td className="px-4 py-4"><div className="flex flex-col items-start gap-1.5"><Badge variant={statusVariant(event.status)} size="sm" dot>{STATUS_LABELS[event.status] || event.status}</Badge>{canManage && <select aria-label={`Ubah status ${event.title}`} value={event.status} disabled={savingStatusId === event.id} onChange={(e) => updateStatus(event, e.target.value)} className="max-w-36 rounded-lg border border-[#BFDBFE] bg-white px-2 py-1 text-xs text-[#172554] disabled:cursor-wait disabled:opacity-60">{STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select>}{savingStatusId === event.id && <span role="status" className="text-[11px] text-blue-700">Menyimpan...</span>}</div></td>
-                    <td className="px-4 py-4"><div className="flex justify-end gap-1"><button aria-label={`Detail ${event.title}`} title="Lihat detail" onClick={() => setDetailsEvent(event)} className="rounded-lg p-2 text-blue-700 hover:bg-blue-50"><Eye className="h-4 w-4" /></button>{canManage && <><button aria-label={`Edit ${event.title}`} title="Edit event" onClick={() => openEdit(event)} className="rounded-lg p-2 text-blue-700 hover:bg-blue-50"><Pencil className="h-4 w-4" /></button><button aria-label={`Hapus ${event.title}`} title="Hapus event" onClick={() => setDeleteEvent(event)} className="rounded-lg p-2 text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></>}</div></td>
-                  </tr>;
+                  const isFull = (event.registeredCount || 0) >= (event.quota || 1);
+                  const quotaPercent = Math.min(100, Math.round(((event.registeredCount || 0) / (event.quota || 1)) * 100));
+                  return (
+                    <tr key={event.id} className="hover:bg-blue-50/50 transition-colors">
+                      {/* Kolom Event */}
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          {event.poster ? (
+                            <img src={event.poster} alt="" className="h-11 w-11 rounded-xl border border-blue-100 object-cover shadow-2xs shrink-0" />
+                          ) : (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-500 border border-blue-100 shadow-2xs shrink-0">
+                              <CalendarDays className="h-5 w-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0 max-w-[230px]">
+                            <p className="font-extrabold text-sm text-[#172554] leading-snug line-clamp-1" title={event.title}>
+                              {event.title}
+                            </p>
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                {event.category}
+                              </span>
+                              {Number(event.registrationFee) > 0 ? (
+                                <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                                  Rp {new Intl.NumberFormat('id-ID').format(event.registrationFee)}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                                  Gratis
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Kolom Jadwal */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="font-bold text-xs text-[#172554]">{formatDate(event.date)}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500 font-medium">
+                          {formatEventTimeRange(event.startTime, event.endTime)}
+                        </div>
+                      </td>
+
+                      {/* Kolom Lokasi */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-start gap-1.5 text-xs text-slate-700 max-w-[150px]" title={event.location}>
+                          <MapPin className="h-3.5 w-3.5 text-blue-600 shrink-0 mt-0.5" />
+                          <span className="line-clamp-2 font-medium">{event.location || '-'}</span>
+                        </div>
+                      </td>
+
+                      {/* Kolom Kuota */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="text-xs font-bold text-[#172554]">
+                          {event.registeredCount || 0} <span className="font-normal text-slate-500">/ {event.quota}</span>
+                        </div>
+                        <div className="mt-1.5 w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-1.5 rounded-full transition-all duration-300 ${
+                              isFull ? 'bg-rose-500' : 'bg-blue-600'
+                            }`}
+                            style={{ width: `${quotaPercent}%` }}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Kolom Status */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          {canManage ? (
+                            <div className="relative inline-block">
+                              <select
+                                aria-label={`Ubah status ${event.title}`}
+                                value={event.status}
+                                disabled={savingStatusId === event.id}
+                                onChange={(e) => updateStatus(event, e.target.value)}
+                                className={`rounded-xl pl-2.5 pr-6 py-1 text-xs font-bold border transition cursor-pointer appearance-none shadow-2xs ${
+                                  event.status === 'published' || event.status === 'ongoing'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : event.status === 'cancelled'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                    : event.status === 'completed'
+                                    ? 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                }`}
+                              >
+                                {STATUSES.map((status) => (
+                                  <option key={status} value={status} className="bg-white text-slate-900 font-medium">
+                                    {STATUS_LABELS[status] || status}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-current text-[9px] opacity-70">▼</span>
+                            </div>
+                          ) : (
+                            <Badge variant={statusVariant(event.status)} size="sm" dot>
+                              {STATUS_LABELS[event.status] || event.status}
+                            </Badge>
+                          )}
+                          {savingStatusId === event.id && (
+                            <span role="status" className="text-[10px] text-blue-700 animate-pulse font-semibold">Menyimpan...</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Kolom Aksi */}
+                      <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setActiveEventSubView({ type: 'attendance', event })}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-800 transition hover:bg-blue-600 hover:text-white hover:border-blue-600 cursor-pointer shadow-2xs shrink-0"
+                            title={`Kelola Peserta & Absensi untuk ${event.title}`}
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            <span>Peserta & Absen</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveEventSubView({ type: 'certificates', event })}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-800 transition hover:bg-indigo-600 hover:text-white hover:border-indigo-600 cursor-pointer shadow-2xs shrink-0"
+                            title={`Kelola Sertifikat untuk ${event.title}`}
+                          >
+                            <Award className="h-3.5 w-3.5" />
+                            <span>Sertifikat</span>
+                          </button>
+                          <div className="flex items-center gap-0.5 ml-1 border-l border-slate-200 pl-1 shrink-0">
+                            <button
+                              type="button"
+                              aria-label={`Detail ${event.title}`}
+                              title="Lihat detail"
+                              onClick={() => setDetailsEvent(event)}
+                              className="rounded-lg p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 transition cursor-pointer"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            {canManage && (
+                              <>
+                                <button
+                                  type="button"
+                                  aria-label={`Edit ${event.title}`}
+                                  title="Edit event"
+                                  onClick={() => openEdit(event)}
+                                  className="rounded-lg p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 transition cursor-pointer"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Hapus ${event.title}`}
+                                  title="Hapus event"
+                                  onClick={() => setDeleteEvent(event)}
+                                  className="rounded-lg p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>
@@ -455,7 +701,7 @@ export default function EventManagement({ assignedOnly = false }) {
       </Modal>
 
       <Modal isOpen={!!detailsEvent} onClose={() => setDetailsEvent(null)} title="Detail Event" maxWidth="max-w-2xl" footer={<Button onClick={() => setDetailsEvent(null)}>Tutup</Button>}>
-        {detailsEvent && <div className="space-y-4">{detailsEvent.poster && <img src={detailsEvent.poster} alt={`Poster ${detailsEvent.title}`} className="max-h-[28rem] w-full rounded-xl bg-slate-50 object-contain p-2" />}<div className="flex items-center justify-between gap-3"><Badge variant="blue">{detailsEvent.category}</Badge><Badge variant={statusVariant(detailsEvent.status)}>{STATUS_LABELS[detailsEvent.status] || detailsEvent.status}</Badge></div><h3 className="text-xl font-extrabold">{detailsEvent.title}</h3><p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{detailsEvent.description}</p><dl className="grid grid-cols-2 gap-3 rounded-xl bg-blue-50 p-4 text-sm"><div><dt className="text-xs text-slate-500">Tanggal</dt><dd className="font-semibold">{formatDate(detailsEvent.date)}</dd></div><div><dt className="text-xs text-slate-500">Waktu</dt><dd className="font-semibold">{detailsEvent.startTime}â€“{detailsEvent.endTime}</dd></div><div><dt className="text-xs text-slate-500">Lokasi</dt><dd className="font-semibold">{detailsEvent.location}</dd></div><div><dt className="text-xs text-slate-500">Kuota</dt><dd className="font-semibold">{detailsEvent.registeredCount || 0} / {detailsEvent.quota}</dd></div><div><dt className="text-xs text-slate-500">Biaya pendaftaran</dt><dd className="font-semibold">{formatRegistrationFee(detailsEvent.registrationFee)}</dd></div>{Number(detailsEvent.registrationFee) > 0 && <div className="col-span-2 rounded-xl border border-blue-100 bg-white p-3"><dt className="text-xs text-slate-500">Rekening tujuan transfer</dt><dd className="mt-1 font-bold">{detailsEvent.paymentBankName || 'Belum diatur'} · {detailsEvent.paymentAccountNumber || '—'}</dd><dd className="text-xs text-slate-600">a.n. {detailsEvent.paymentAccountName || 'Belum diatur'}</dd></div>}{detailsEvent.mealOptions?.length > 0 && <div className="col-span-2"><dt className="text-xs text-slate-500">Pilihan makanan</dt><dd className="font-semibold">{detailsEvent.mealOptions.join(", ")}</dd></div>}{detailsEvent.shirtSizes?.length > 0 && <div className="col-span-2"><dt className="text-xs text-slate-500">Ukuran baju</dt><dd className="font-semibold">{detailsEvent.shirtSizes.join(", ")}</dd></div>}</dl></div>}
+        {detailsEvent && <div className="space-y-4">{detailsEvent.poster && <img src={detailsEvent.poster} alt={`Poster ${detailsEvent.title}`} className="max-h-[28rem] w-full rounded-xl bg-slate-50 object-contain p-2" />}<div className="flex items-center justify-between gap-3"><Badge variant="blue">{detailsEvent.category}</Badge><Badge variant={statusVariant(detailsEvent.status)}>{STATUS_LABELS[detailsEvent.status] || detailsEvent.status}</Badge></div><h3 className="text-xl font-extrabold">{detailsEvent.title}</h3><p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{detailsEvent.description}</p><dl className="grid grid-cols-2 gap-3 rounded-xl bg-blue-50 p-4 text-sm"><div><dt className="text-xs text-slate-500">Tanggal</dt><dd className="font-semibold">{formatDate(detailsEvent.date)}</dd></div><div><dt className="text-xs text-slate-500">Waktu</dt><dd className="font-semibold">{formatEventTimeRange(detailsEvent.startTime, detailsEvent.endTime)}</dd></div><div><dt className="text-xs text-slate-500">Lokasi</dt><dd className="font-semibold">{detailsEvent.location}</dd></div><div><dt className="text-xs text-slate-500">Kuota</dt><dd className="font-semibold">{detailsEvent.registeredCount || 0} / {detailsEvent.quota}</dd></div><div><dt className="text-xs text-slate-500">Biaya pendaftaran</dt><dd className="font-semibold">{formatRegistrationFee(detailsEvent.registrationFee)}</dd></div>{Number(detailsEvent.registrationFee) > 0 && <div className="col-span-2 rounded-xl border border-blue-100 bg-white p-3"><dt className="text-xs text-slate-500">Rekening tujuan transfer</dt><dd className="mt-1 font-bold">{detailsEvent.paymentBankName || 'Belum diatur'} · {detailsEvent.paymentAccountNumber || '—'}</dd><dd className="text-xs text-slate-600">a.n. {detailsEvent.paymentAccountName || 'Belum diatur'}</dd></div>}{detailsEvent.mealOptions?.length > 0 && <div className="col-span-2"><dt className="text-xs text-slate-500">Pilihan makanan</dt><dd className="font-semibold">{detailsEvent.mealOptions.join(", ")}</dd></div>}{detailsEvent.shirtSizes?.length > 0 && <div className="col-span-2"><dt className="text-xs text-slate-500">Ukuran baju</dt><dd className="font-semibold">{detailsEvent.shirtSizes.join(", ")}</dd></div>}</dl></div>}
       </Modal>
 
       <Modal isOpen={!!deleteEvent} onClose={() => setDeleteEvent(null)} title="Konfirmasi Hapus Event" footer={<><Button variant="ghost" onClick={() => setDeleteEvent(null)}>Batal</Button><Button variant="danger" onClick={confirmDelete}>Hapus Event</Button></>}>

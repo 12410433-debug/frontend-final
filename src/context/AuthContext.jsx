@@ -158,6 +158,100 @@ export const AuthProvider = ({ children }) => {
     return cleanUserData;
   };
 
+  const registerStudent = async ({ name, nim, email, phone, major, password }) => {
+    const cleanName = String(name || '').trim();
+    const cleanNim = String(nim || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPhone = String(phone || '').trim();
+    const cleanMajor = String(major || '').trim();
+    const cleanPassword = String(password || '').trim();
+
+    if (!cleanName || !cleanNim || !cleanEmail || !cleanPhone || !cleanMajor || !cleanPassword) {
+      throw new Error('Semua data wajib diisi: Nama lengkap, NIM, Email, No. Telp, Jurusan, dan Kata sandi.');
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new Error('Format alamat email tidak valid.');
+    }
+
+    if (cleanPassword.length < 6) {
+      throw new Error('Kata sandi minimal 6 karakter.');
+    }
+
+    let users;
+    try {
+      const { data } = await jsonServerApi.get('/users');
+      users = Array.isArray(data) ? data : [];
+    } catch {
+      users = [];
+    }
+
+    const emailOwner = users.find(
+      (u) => String(u.email || '').trim().toLowerCase() === cleanEmail
+    );
+    if (emailOwner) {
+      throw new Error('Alamat email ini sudah terdaftar. Silakan gunakan email lain atau masuk ke akun Anda.');
+    }
+
+    const nimOwner = users.find(
+      (u) => u.role === 'student' && String(u.nim || '').trim() === cleanNim
+    );
+    if (nimOwner) {
+      throw new Error('NIM ini sudah terdaftar pada akun mahasiswa lain. Periksa kembali NIM Anda.');
+    }
+
+    const newId = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const newStudent = {
+      id: newId,
+      name: cleanName,
+      nim: cleanNim,
+      email: cleanEmail,
+      phone: cleanPhone,
+      major: cleanMajor,
+      password: cleanPassword,
+      role: 'student',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    const { data: createdUser } = await jsonServerApi.post('/users', newStudent);
+
+    const cleanUserData = { ...createdUser };
+    delete cleanUserData.password;
+    setAccount(cleanUserData);
+    setStudentProfileState(cleanUserData);
+    localStorage.setItem('filkom_user', JSON.stringify(cleanUserData));
+    localStorage.setItem('filkom_student_profile', JSON.stringify(cleanUserData));
+
+    return cleanUserData;
+  };
+
+  const updateStudentProfile = async (updatedData) => {
+    const studentId = user?.id || studentProfile?.id;
+    if (!studentId) throw new Error('ID mahasiswa tidak ditemukan.');
+
+    const cleanData = {
+      ...(user || {}),
+      ...updatedData,
+      role: 'student',
+      status: 'active',
+    };
+
+    delete cleanData.password;
+
+    try {
+      await jsonServerApi.patch(`/users/${studentId}`, cleanData);
+    } catch {
+      // jika patch server gagal, tetap perbarui data sesi lokal
+    }
+
+    setAccount(cleanData);
+    setStudentProfileState(cleanData);
+    localStorage.setItem('filkom_user', JSON.stringify(cleanData));
+    localStorage.setItem('filkom_student_profile', JSON.stringify(cleanData));
+    return cleanData;
+  };
+
   const logout = () => {
     setAccount(null);
     setStudentProfileState(null);
@@ -170,10 +264,12 @@ export const AuthProvider = ({ children }) => {
     user,
     studentProfile,
     setStudentProfile,
+    updateStudentProfile,
     role: user?.role || null,
     isAuthenticated: !!account,
     loading,
     login,
+    registerStudent,
     logout,
   };
 

@@ -61,7 +61,7 @@ function formatAnnouncementDate(value) {
 function EventCard({ event }) {
   const remaining = event.quota == null ? null : Math.max(0, event.quota - (event.registeredCount || 0));
   const schedule = event.startTime || event.endTime
-    ? (event.startTime || 'Waktu belum tersedia') + '–' + (event.endTime || 'Waktu belum tersedia') + ' WITA'
+    ? (event.startTime || 'Waktu belum tersedia') + ' - ' + (event.endTime || 'Waktu belum tersedia') + ' WITA'
     : 'Waktu belum tersedia';
 
   return (
@@ -219,7 +219,7 @@ export default function StudentAIAssistant() {
           {recommendations.length > 0 && <div className="mt-5 space-y-3">
             {recommendations.map((event) => <article key={event.id} className="rounded-2xl border border-[#BFDBFE] p-4 transition hover:border-blue-400 hover:shadow-md">
               <div className="flex flex-wrap items-start justify-between gap-2"><h3 className="font-extrabold">{event.title}</h3><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-800">{event.category || 'Lainnya'}</span></div>
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-blue-900"><CalendarDays className="h-3.5 w-3.5" />{formatEventDate(event.date)} · {event.startTime || 'Waktu belum tersedia'}{event.endTime ? '–' + event.endTime : ''} WITA</p>
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-blue-900"><CalendarDays className="h-3.5 w-3.5" />{formatEventDate(event.date)} · {event.startTime || 'Waktu belum tersedia'}{event.endTime ? ' - ' + event.endTime : ''} WITA</p>
               <p className="mt-1 flex items-center gap-1.5 text-xs text-blue-900"><MapPin className="h-3.5 w-3.5" />{event.location || 'Lokasi belum tersedia'}</p>
               <p className="mt-3 text-sm leading-relaxed text-slate-700">{event.reason}</p>
             </article>)}

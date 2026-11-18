@@ -12,7 +12,7 @@ function dateLabel(value) {
   });
 }
 
-export default function CertificateManagement({ refreshKey = 0 }) {
+export default function CertificateManagement({ refreshKey = 0, eventId = '' }) {
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,12 +28,15 @@ export default function CertificateManagement({ refreshKey = 0 }) {
   }, [refreshKey]);
 
   const visible = useMemo(() => certificates.filter(({ certificate, student, event }) => {
+    if (eventId && eventId !== 'default' && String(event?.id) !== String(eventId)) {
+      return false;
+    }
     const query = search.trim().toLowerCase();
     return !query || student.name.toLowerCase().includes(query)
       || student.nim?.toLowerCase().includes(query)
       || event.title.toLowerCase().includes(query)
       || certificate.certificateNumber.toLowerCase().includes(query);
-  }), [certificates, search]);
+  }), [certificates, search, eventId]);
 
   return (
     <section id="certificates" className="space-y-5 text-[#172554]">

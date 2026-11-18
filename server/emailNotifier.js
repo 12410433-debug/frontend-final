@@ -57,8 +57,8 @@ export async function verifySmtpConnection() {
   return { verified: true };
 }
 
-export async function sendEmail({ to, subject, text, html }) {
+export async function sendEmail({ to, subject, text, html, attachments }) {
   const settings = smtpSettings();
   const sender = process.env.SMTP_FROM?.trim() || 'FILKOM Event Management <' + settings.user + '>';
-  return getTransport().sendMail({ from: sender, to, subject, text, html });
+  return getTransport().sendMail({ from: sender, to, subject, text, html, attachments });
 }

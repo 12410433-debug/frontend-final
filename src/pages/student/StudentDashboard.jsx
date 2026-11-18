@@ -12,6 +12,9 @@ import {
   QrCode,
   Receipt,
   Download,
+  User,
+  Save,
+  Award,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import Card, { CardBody, CardFooter } from '../../components/Card';
@@ -22,8 +25,10 @@ import Alert from '../../components/Alert';
 import eventApi from '../../services/eventApi';
 import registrationService from '../../services/registrationService';
 import announcementApi from '../../services/announcementApi';
+import certificateService from '../../services/certificateService';
 import StudentCertificates from '../../components/StudentCertificates';
 import { downloadPaymentReceiptPdf } from '../../utils/paymentReceiptPdf';
+import { downloadCertificatePdf } from '../../utils/certificatePdf';
 
 
 const ANNOUNCEMENT_CATEGORIES = ['Akademik', 'Event', 'Organisasi', 'Informasi Fakultas', 'Lainnya'];
@@ -39,14 +44,43 @@ function formatAnnouncementDate(value) {
   });
 }
 
+function formatTimeAMPM(timeStr) {
+  if (!timeStr) return '';
+  const trimmed = String(timeStr).trim();
+  if (/am|pm/i.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return trimmed;
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  if (Number.isNaN(hours)) return trimmed;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const formattedHour = String(hours).padStart(2, '0');
+  return `${formattedHour}:${minutes} ${period}`;
+}
+
+function formatEventTimeRange(startTime, endTime) {
+  if (!startTime && !endTime) return '';
+  const start = formatTimeAMPM(startTime);
+  const end = formatTimeAMPM(endTime);
+  if (start && end) return `${start} - ${end} WITA`;
+  if (start) return `${start} WITA`;
+  return `${end} WITA`;
+}
+
 export default function StudentDashboard() {
-  const { user, studentProfile: savedStudentProfile, setStudentProfile } = useAuth();
+  const { user, studentProfile: savedStudentProfile, setStudentProfile, updateStudentProfile } = useAuth();
   const student = user?.role === 'student' ? user : savedStudentProfile;
   const location = useLocation();
   const view = location.pathname.split('/')[2] || 'events';
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [registrationTarget, setRegistrationTarget] = useState(null);
   const [registrationFormOpen, setRegistrationFormOpen] = useState(false);
+  const [registrationConfirmOpen, setRegistrationConfirmOpen] = useState(false);
+  const [pendingRegistrationData, setPendingRegistrationData] = useState(null);
   const [registrationForm, setRegistrationForm] = useState(EMPTY_REGISTRATION_FORM);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [selectedQrRegistration, setSelectedQrRegistration] = useState(null);
@@ -61,6 +95,23 @@ export default function StudentDashboard() {
   const [registrations, setRegistrations] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
+  const [downloadingCertId, setDownloadingCertId] = useState(null);
+
+  const handleDownloadCertificate = async (registration) => {
+    if (!student?.id) return;
+    setDownloadingCertId(registration.id);
+    setRegistrationError('');
+    setRegistrationMessage('');
+    try {
+      const cert = await certificateService.issueForStudent(student.id, registration.id);
+      downloadCertificatePdf(cert);
+      setRegistrationMessage(`Sertifikat "${registration.event?.title || 'Event'}" berhasil diunduh dan notifikasi email telah diproses.`);
+    } catch (err) {
+      setRegistrationError(err.response?.data?.message || err.message || 'Sertifikat belum dapat diunduh. Pastikan kehadiran Anda telah tervalidasi.');
+    } finally {
+      setDownloadingCertId(null);
+    }
+  };
   const [searchEvent, setSearchEvent] = useState('');
   const [announcementSearch, setAnnouncementSearch] = useState('');
   const [announcementCategoryFilter, setAnnouncementCategoryFilter] = useState('');
@@ -72,6 +123,54 @@ export default function StudentDashboard() {
   const [publishedEvents, setPublishedEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState('');
+
+  // State untuk Akun / Profil Mahasiswa
+  const [profileForm, setProfileForm] = useState(() => ({
+    name: student?.name || '',
+    nim: student?.nim || '',
+    email: student?.email || '',
+    phone: student?.phone || '',
+    major: student?.major || 'Informatika',
+  }));
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
+    if (!student) return undefined;
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        setProfileForm({
+          name: student.name || '',
+          nim: student.nim || '',
+          email: student.email || '',
+          phone: student.phone || '',
+          major: student.major || 'Informatika',
+        });
+      }
+    });
+    return () => { active = false; };
+  }, [student]);
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+    if (!profileForm.name.trim() || !profileForm.nim.trim() || !profileForm.email.trim()) {
+      setProfileError('Nama, NIM, dan Email wajib diisi.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      await updateStudentProfile(profileForm);
+      setProfileSuccess('Data profil akun berhasil disimpan! Perubahan ini otomatis terhubung pada formulir event.');
+    } catch (err) {
+      setProfileError(err.message || 'Gagal menyimpan data akun mahasiswa.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (view !== 'events') return undefined;
@@ -185,6 +284,18 @@ export default function StudentDashboard() {
     formEvent.preventDefault();
     const event = registrationTarget;
     if (!event) return;
+    // Simpan data form ke state, lalu buka modal konfirmasi
+    setPendingRegistrationData({
+      form: { ...registrationForm },
+      event,
+    });
+    setRegistrationFormOpen(false);
+    setRegistrationConfirmOpen(true);
+  };
+
+  const handleConfirmRegistration = async () => {
+    const { form, event } = pendingRegistrationData || {};
+    if (!event) return;
     const eventId = String(event.id);
     if (registerInFlight.current.has(eventId)) return;
     registerInFlight.current.add(eventId);
@@ -192,12 +303,12 @@ export default function StudentDashboard() {
     setRegistrationError('');
     setRegistrationMessage('');
     try {
-      const result = await registrationService.register(registrationForm, event.id, {
-        mealChoice: registrationForm.mealChoice,
-        shirtSize: registrationForm.shirtSize,
-        paymentMethod: registrationForm.paymentMethod,
-        paymentProof: registrationForm.paymentProof,
-        paymentProofName: registrationForm.paymentProofName,
+      const result = await registrationService.register(form, event.id, {
+        mealChoice: form.mealChoice,
+        shirtSize: form.shirtSize,
+        paymentMethod: form.paymentMethod,
+        paymentProof: form.paymentProof,
+        paymentProofName: form.paymentProofName,
       });
       setStudentProfile(result.student);
       setRegistrations((current) => [
@@ -210,11 +321,12 @@ export default function StudentDashboard() {
       setSelectedEvent((current) => (
         current && String(current.id) === eventId ? { ...current, ...result.event } : current
       ));
-      const emailNotice = result.notification?.success ? ' Email konfirmasi terkirim.' : result.notification?.error ? ' Email belum terkirim: ' + result.notification.error : '';
-      const paymentNotice = Number(event.registrationFee) > 0 ? ' Pembayaran menunggu verifikasi BEM/Admin. Kwitansi digital tersedia setelah dikonfirmasi.' : '';
-      setRegistrationMessage('Pendaftaran untuk ' + event.title + ' berhasil disimpan.' + paymentNotice + emailNotice);
+      // Tidak perlu ada pesan konfirmasi lagi ketika sudah selesai loading
+      setRegistrationMessage('');
+      setRegistrationConfirmOpen(false);
       setRegistrationFormOpen(false);
       setRegistrationTarget(null);
+      setPendingRegistrationData(null);
     } catch (error) {
       const serverError = error.response?.data?.message || error.response?.data?.error;
       const isNetworkFailure = error.isAxiosError && !error.response;
@@ -290,7 +402,7 @@ export default function StudentDashboard() {
     .map((event) => ({
       ...event,
       displayDate: new Date(`${event.date}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }),
-      displayTime: `${event.startTime}â€“${event.endTime} WITA`,
+      displayTime: formatEventTimeRange(event.startTime, event.endTime),
       organizer: `Panitia FILKOM (${event.organizerId})`,
       quotaLabel: `${event.registeredCount || 0} / ${event.quota}`,
     }));
@@ -304,7 +416,7 @@ export default function StudentDashboard() {
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             Portal Resmi Mahasiswa FILKOM
           </span>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{view === 'overview' ? 'Selamat Datang, ' + (student?.name || 'Mahasiswa FILKOM') : view === 'events' ? 'Jelajahi Event' : view === 'registrations' ? 'Riwayat Pendaftaran' : view === 'announcements' ? 'Pengumuman FILKOM' : 'Sertifikat Saya'}</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{view === 'overview' ? 'Selamat Datang, ' + (student?.name || 'Mahasiswa FILKOM') : view === 'events' ? 'Jelajahi Event' : view === 'registrations' ? 'Riwayat Pendaftaran' : view === 'announcements' ? 'Pengumuman FILKOM' : view === 'profile' ? 'Akun & Profil Mahasiswa' : 'Sertifikat Saya'}</h1>
           <p className="mt-2 text-xs sm:text-sm text-blue-100 font-medium leading-relaxed">
             NIM: <strong>{student?.nim || 'Diisi saat pendaftaran'}</strong> &bull; Program Studi <strong>{student?.major || 'Diisi saat pendaftaran'}</strong> &bull; Fakultas Ilmu Komputer, Universitas Klabat
           </p>
@@ -336,7 +448,7 @@ export default function StudentDashboard() {
             </p>
           </div>
           <Badge variant="green" size="md">
-            {registrations.length} Pendaftaran
+            {registrations.filter((r) => r.event).length} Pendaftaran
           </Badge>
         </div>
 
@@ -347,22 +459,59 @@ export default function StudentDashboard() {
           <Card className="overflow-hidden border border-[#BFDBFE] bg-white">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="bg-[#EFF6FF] text-xs uppercase tracking-wide text-[#1E3A8A]"><tr><th className="px-5 py-3">Nama Event</th><th className="px-4 py-3">Tanggal Event</th><th className="px-4 py-3">Lokasi</th><th className="px-4 py-3">Tanggal Pendaftaran</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Pembayaran & Kwitansi</th><th className="px-4 py-3">QR Code</th></tr></thead>
+                <thead className="bg-[#EFF6FF] text-xs uppercase tracking-wide text-[#1E3A8A]">
+                  <tr>
+                    <th className="px-5 py-3">Nama Event</th>
+                    <th className="px-4 py-3">Tanggal Event</th>
+                    <th className="px-4 py-3">Lokasi</th>
+                    <th className="px-4 py-3">Tanggal Pendaftaran</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Pembayaran & Kwitansi</th>
+                    <th className="px-4 py-3 text-right">QR Code / Sertifikat</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-blue-100">
-                  {registrations.map((registration) => {
+                  {registrations.filter((r) => r.event).map((registration) => {
                     const event = registration.event;
                     const registrationStatus = registration.status || 'pending';
                     const statusVariant = registrationStatus === 'confirmed' ? 'green' : registrationStatus === 'cancelled' ? 'red' : 'yellow';
+                    const canDownloadCert = Boolean(
+                      registration.isAttended ||
+                      registration.certificate ||
+                      (registration.attendance && ['hadir', 'terlambat'].includes(registration.attendance.status)) ||
+                      event?.status === 'completed'
+                    );
                     return <tr key={registration.id}>
                       <td className="px-5 py-4"><p className="font-bold">{event?.title || `Event ${registration.eventId}`}</p><div className="mt-1 space-y-0.5 text-xs text-slate-600"><p>Biaya: {formatRegistrationFee(registration.registrationFee)}</p>{registration.mealChoice && <p>Menu: {registration.mealChoice}</p>}{registration.shirtSize && <p>Ukuran baju: {registration.shirtSize}</p>}</div></td>
-                      <td className="px-4 py-4">{event?.date ? new Date(`${event.date}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : 'â€”'}{event?.startTime && <div className="text-xs text-slate-500">{event.startTime}â€“{event.endTime}</div>}</td>
+                      <td className="px-4 py-4">{event?.date ? new Date(`${event.date}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}{(event?.startTime || event?.endTime) && <div className="text-xs text-slate-500 font-medium mt-0.5">{formatEventTimeRange(event.startTime, event.endTime)}</div>}</td>
                       <td className="px-4 py-4">{event?.location || 'Lokasi tidak tersedia'}</td>
-                      <td className="px-4 py-4">{registration.registrationDate ? new Date(registration.registrationDate).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Makassar' }) : 'â€”'}</td>
+                      <td className="px-4 py-4">{registration.registrationDate ? new Date(registration.registrationDate).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Makassar' }) : '-'}</td>
                       <td className="px-4 py-4"><Badge variant={statusVariant} size="sm" dot>{registrationStatus === 'confirmed' ? 'Terkonfirmasi' : registrationStatus === 'cancelled' ? 'Dibatalkan' : 'Menunggu'}</Badge></td>
                       <td className="px-4 py-4">
                         {Number(registration.registrationFee) <= 0 ? <Badge variant="green" size="sm">Gratis</Badge> : registration.paymentStatus === 'paid' && registration.receiptNumber ? <div className="space-y-2"><Badge variant="green" size="sm" dot>Lunas</Badge><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" icon={Receipt} onClick={() => setSelectedReceiptRegistration(registration)}>Lihat</Button><Button variant="secondary" size="sm" icon={Download} onClick={() => downloadReceipt(registration)}>Unduh PDF</Button></div></div> : <div className="space-y-1"><Badge variant="yellow" size="sm" dot>Menunggu verifikasi</Badge><p className="text-xs text-slate-600">Metode: {registration.paymentMethod === 'transfer' ? 'Transfer' : 'Cash'}</p></div>}
                       </td>
-                      <td className="px-4 py-4">{registration.qrCode ? <Button variant="secondary" size="sm" icon={QrCode} onClick={() => { setQrDataUrl(''); setQrError(''); setSelectedQrRegistration(registration); }}>Lihat QR</Button> : <span className="text-xs text-slate-500">Belum tersedia</span>}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-right">
+                        {canDownloadCert ? (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            icon={Award}
+                            isLoading={downloadingCertId === registration.id}
+                            disabled={!!downloadingCertId}
+                            onClick={() => handleDownloadCertificate(registration)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xs cursor-pointer"
+                            title="Unduh Sertifikat Resmi"
+                          >
+                            Unduh Sertifikat
+                          </Button>
+                        ) : registration.qrCode ? (
+                          <Button variant="secondary" size="sm" icon={QrCode} onClick={() => { setQrDataUrl(''); setQrError(''); setSelectedQrRegistration(registration); }}>
+                            Lihat QR
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-slate-500">Belum tersedia</span>
+                        )}
+                      </td>
                     </tr>;
                   })}
                 </tbody>
@@ -496,7 +645,7 @@ export default function StudentDashboard() {
                   <p className="mb-3 line-clamp-3 text-xs font-medium leading-relaxed text-[#1E40AF]">{item.content}</p>
                   <div className="flex items-center gap-1.5 border-t border-amber-200 pt-2 text-xs font-bold text-[#1D4ED8]"><Bell className="h-3.5 w-3.5 text-[#2563EB]" /><span>Dipublikasikan {formatAnnouncementDate(item.publishedAt)}</span></div>
                 </CardBody>
-                <CardFooter><span className="text-xs font-bold text-[#2563EB]">Baca selengkapnya â†’</span></CardFooter>
+                <CardFooter><span className="text-xs font-bold text-[#2563EB]">Baca selengkapnya &rarr;</span></CardFooter>
               </Card>)}
             </div>
           </div>}
@@ -507,7 +656,7 @@ export default function StudentDashboard() {
                 <h3 className="mb-2 text-base font-extrabold leading-snug text-[#172554]">{item.title}</h3>
                 <p className="mb-3 line-clamp-3 text-xs font-medium leading-relaxed text-[#1E40AF]">{item.content}</p>
               </CardBody>
-              <CardFooter><span className="text-xs font-bold text-[#2563EB]">Baca selengkapnya â†’</span></CardFooter>
+              <CardFooter><span className="text-xs font-bold text-[#2563EB]">Baca selengkapnya &rarr;</span></CardFooter>
             </Card>)}
           </div>}
         </div>}
@@ -516,6 +665,129 @@ export default function StudentDashboard() {
       )}
 
       {view === 'certificates' && (student?.id ? <StudentCertificates studentId={student.id} /> : <Card className="p-6 text-sm text-slate-600">Daftar event dan isi data diri untuk melihat sertifikat di browser ini.</Card>)}
+
+      {view === 'profile' && (
+        <div className="w-full space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#BFDBFE] pb-4">
+            <div>
+              <h2 className="text-xl font-extrabold text-[#172554] tracking-tight flex items-center gap-2">
+                <User className="w-5 h-5 text-[#2563EB]" />
+                Pengaturan Akun & Profil Mahasiswa
+              </h2>
+              <p className="text-xs sm:text-sm text-[#1E40AF] font-medium mt-1">
+                Kelola data diri akun mahasiswa Anda. Data yang diubah di sini akan otomatis terhubung saat mendaftar event.
+              </p>
+            </div>
+          </div>
+
+          {profileSuccess && (
+            <Alert type="success" message={profileSuccess} onClose={() => setProfileSuccess('')} />
+          )}
+          {profileError && (
+            <Alert type="error" message={profileError} onClose={() => setProfileError('')} />
+          )}
+
+          <Card className="p-6 sm:p-8 bg-white border border-[#BFDBFE] shadow-sm max-w-2xl">
+            <form onSubmit={handleSaveProfile} className="space-y-5">
+              <div className="flex items-center gap-4 pb-5 border-b border-blue-100">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#1E3A8A] to-[#2563EB] text-white flex items-center justify-center font-bold text-xl shadow-md">
+                  {profileForm.name ? profileForm.name.charAt(0).toUpperCase() : 'M'}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-[#172554]">{profileForm.name || 'Mahasiswa FILKOM'}</h3>
+                  <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full inline-block mt-1 border border-emerald-200">
+                    Akun Mahasiswa Aktif
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                    Nama Lengkap <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.name}
+                    onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                    className="w-full rounded-xl border border-[#BFDBFE] px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#2563EB] focus:outline-none bg-white text-[#172554]"
+                    placeholder="Nama sesuai identitas"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                    NIM (Nomor Induk Mahasiswa) <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.nim}
+                    onChange={(e) => setProfileForm({ ...profileForm, nim: e.target.value })}
+                    className="w-full rounded-xl border border-[#BFDBFE] px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#2563EB] focus:outline-none bg-white text-[#172554]"
+                    placeholder="Contoh: 105022410082"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                    Program Studi / Jurusan <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={profileForm.major}
+                    onChange={(e) => setProfileForm({ ...profileForm, major: e.target.value })}
+                    className="w-full rounded-xl border border-[#BFDBFE] px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#2563EB] focus:outline-none bg-white text-[#172554] cursor-pointer"
+                  >
+                    <option value="Informatika">Informatika</option>
+                    <option value="Sistem Informasi">Sistem Informasi</option>
+                    <option value="Teknologi Informasi">Teknologi Informasi</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                    Alamat Email Mahasiswa <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                    className="w-full rounded-xl border border-[#BFDBFE] px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#2563EB] focus:outline-none bg-white text-[#172554]"
+                    placeholder="nama@student.unklab.ac.id"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                    Nomor Telepon / WhatsApp
+                  </label>
+                  <input
+                    type="tel"
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    className="w-full rounded-xl border border-[#BFDBFE] px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#2563EB] focus:outline-none bg-white text-[#172554]"
+                    placeholder="08xxxxxxxxxx"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-blue-100 flex items-center justify-end gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  isLoading={profileSaving}
+                  icon={Save}
+                >
+                  Simpan Perubahan Akun
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
 
       <Modal
         isOpen={view === 'registrations' && !!selectedReceiptRegistration}
@@ -570,7 +842,7 @@ export default function StudentDashboard() {
             {registrationsByEvent.has(String(selectedEvent.id)) ? (
               <Button variant="secondary" disabled>Sudah Terdaftar</Button>
             ) : Number(selectedEvent.registeredCount || 0) >= Number(selectedEvent.quota || 0) ? (
-              <Button variant="secondary" disabled>Pendaftaran Ditutup Â· Kuota Penuh</Button>
+              <Button variant="secondary" disabled>Pendaftaran Ditutup &bull; Kuota Penuh</Button>
             ) : (
               <Button disabled={!!registeringEventId} onClick={() => openRegistrationForm(selectedEvent)}>Daftar Event</Button>
             )}
@@ -596,17 +868,89 @@ export default function StudentDashboard() {
         onClose={() => { if (!registeringEventId) setRegistrationFormOpen(false); }}
         title="Formulir Pendaftaran Event"
         maxWidth="max-w-2xl"
-        footer={<><Button variant="ghost" disabled={!!registeringEventId} onClick={() => setRegistrationFormOpen(false)}>Batal</Button><Button type="submit" form="student-registration-form" disabled={proofUploading || (registrationTarget && registrationForm.paymentMethod === 'transfer' && !(registrationTarget.paymentBankName && registrationTarget.paymentAccountNumber && registrationTarget.paymentAccountName))} isLoading={!!registeringEventId || proofUploading}>{proofUploading ? 'Membaca bukti...' : 'Kirim Pendaftaran'}</Button></>}
+        footer={<><Button variant="ghost" disabled={!!registeringEventId} onClick={() => setRegistrationFormOpen(false)}>Batal</Button><Button type="submit" form="student-registration-form" disabled={proofUploading || (registrationTarget && registrationForm.paymentMethod === 'transfer' && !(registrationTarget.paymentBankName && registrationTarget.paymentAccountNumber && registrationTarget.paymentAccountName))} isLoading={proofUploading}>{proofUploading ? 'Membaca bukti...' : 'Lanjut ke Konfirmasi →'}</Button></>}
       >
         <form id="student-registration-form" onSubmit={handleRegisterEvent} className="space-y-4">
           {registrationError && <Alert type="error" message={registrationError} onClose={() => setRegistrationError('')} />}
-          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm"><p className="font-extrabold">{registrationTarget?.title}</p><p className="mt-1 text-xs text-blue-900">Tidak perlu membuat akun atau kata sandi. Data ini digunakan untuk pendaftaran, QR event, dan riwayat di browser ini.</p><p className="mt-2 border-t border-blue-100 pt-2 text-xs font-extrabold text-blue-900">Biaya pendaftaran: {formatRegistrationFee(registrationTarget?.registrationFee)}</p>{Number(registrationTarget?.registrationFee) > 0 && <p className="mt-1 text-[11px] text-blue-800">Pilih cash atau transfer. Kwitansi digital aktif setelah pembayaran diverifikasi BEM/Admin.</p>}</div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3.5 text-sm space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="font-extrabold text-[#172554] text-base">{registrationTarget?.title}</p>
+              {registrationTarget?.category && <Badge variant="blue" size="sm">{registrationTarget.category}</Badge>}
+            </div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Data pendaftaran diambil otomatis dari profil akun mahasiswa Anda.</span>
+            </div>
+            <p className="border-t border-blue-100 pt-2 text-xs font-extrabold text-blue-900">
+              Biaya pendaftaran: {formatRegistrationFee(registrationTarget?.registrationFee)}
+            </p>
+            {Number(registrationTarget?.registrationFee) > 0 && (
+              <p className="text-[11px] text-blue-800">
+                Pilih cash atau transfer. Kwitansi digital aktif setelah pembayaran diverifikasi BEM/Admin.
+              </p>
+            )}
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold">Nama lengkap<input required maxLength={120} autoComplete="name" value={registrationForm.name} onChange={setRegistrationField('name')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Nama sesuai identitas" /></label>
-            <label className="block text-xs font-bold">Email<input required type="email" autoComplete="email" value={registrationForm.email} onChange={setRegistrationField('email')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="nama@student.unklab.ac.id" /></label>
-            <label className="block text-xs font-bold">NIM<input required maxLength={30} value={registrationForm.nim} onChange={setRegistrationField('nim')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Nomor Induk Mahasiswa" /></label>
-            <label className="block text-xs font-bold">Program studi / jurusan<input required maxLength={100} value={registrationForm.major} onChange={setRegistrationField('major')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="Contoh: Informatika" /></label>
-            <label className="block text-xs font-bold sm:col-span-2">Nomor telepon (opsional)<input type="tel" autoComplete="tel" value={registrationForm.phone} onChange={setRegistrationField('phone')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] px-3 py-2.5 text-sm" placeholder="08xxxxxxxxxx" /></label>
+            <div className="text-left">
+              <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                Nama Lengkap
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={registrationForm.name}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-500 italic select-none focus:outline-none"
+              />
+            </div>
+
+            <div className="text-left">
+              <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                Email Mahasiswa
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={registrationForm.email}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-500 italic select-none focus:outline-none"
+              />
+            </div>
+
+            <div className="text-left">
+              <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                NIM (Nomor Induk Mahasiswa)
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={registrationForm.nim}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-500 italic select-none focus:outline-none"
+              />
+            </div>
+
+            <div className="text-left">
+              <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                Program Studi / Jurusan
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={registrationForm.major}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-500 italic select-none focus:outline-none"
+              />
+            </div>
+
+            <div className="text-left sm:col-span-2">
+              <label className="block text-xs font-bold text-[#172554] mb-1.5">
+                Nomor Telepon / WhatsApp
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={registrationForm.phone || '-'}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-500 italic select-none focus:outline-none"
+              />
+            </div>
             {Number(registrationTarget?.registrationFee) > 0 && <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50 p-4 sm:col-span-2">
               <label className="block text-xs font-bold">Metode pembayaran<select required value={registrationForm.paymentMethod} onChange={(event) => { setRegistrationField('paymentMethod')(event); if (event.target.value !== 'transfer') setRegistrationForm((current) => ({ ...current, paymentProof: '', paymentProofName: '' })); }} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="cash">Cash (bayar langsung ke panitia)</option><option value="transfer">Transfer bank</option></select></label>
               {registrationForm.paymentMethod === 'cash' ? <p className="text-xs leading-relaxed text-blue-900">Pembayaran cash menunggu konfirmasi penerimaan BEM/Admin. Kwitansi digital terbit setelah dikonfirmasi.</p> : <div className="space-y-2">
@@ -618,6 +962,111 @@ export default function StudentDashboard() {
             {registrationTarget?.shirtSizes?.length > 0 && <label className="block text-xs font-bold sm:col-span-2">Ukuran baju<select required value={registrationForm.shirtSize} onChange={setRegistrationField('shirtSize')} className="mt-1.5 w-full rounded-xl border border-[#BFDBFE] bg-white px-3 py-2.5 text-sm"><option value="">Pilih ukuran</option>{registrationTarget.shirtSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>}
           </div>
         </form>
+      </Modal>
+
+      {/* Modal Konfirmasi Pendaftaran (Validasi Tindakan) */}
+      <Modal
+        isOpen={registrationConfirmOpen}
+        onClose={() => { if (!registeringEventId) setRegistrationConfirmOpen(false); }}
+        title="Konfirmasi Pendaftaran Event"
+        maxWidth="max-w-lg"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={!!registeringEventId}
+              onClick={() => {
+                setRegistrationConfirmOpen(false);
+                setRegistrationFormOpen(true);
+              }}
+            >
+              Lihat Data
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!!registeringEventId}
+              isLoading={!!registeringEventId}
+              onClick={handleConfirmRegistration}
+            >
+              Ya, Kirim Pendaftaran
+            </Button>
+          </>
+        }
+      >
+        {pendingRegistrationData && (
+          <div className="space-y-4 text-left text-sm text-[#172554]">
+            {registrationError && (
+              <Alert type="error" message={registrationError} onClose={() => setRegistrationError('')} />
+            )}
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 flex items-start gap-3">
+              <Sparkles className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed font-medium">
+                <strong>Verifikasi Informasi:</strong> Pastikan seluruh data diri dan pilihan pendaftaran Anda di bawah ini sudah benar sebelum melanjutkan.
+              </div>
+            </div>
+
+            {/* Ringkasan Event */}
+            <div className="rounded-xl border border-blue-100 bg-[#EFF6FF] p-4 space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#1E3A8A]">Kegiatan yang Diikuti</p>
+              <h4 className="font-extrabold text-[#172554] text-base">{pendingRegistrationData.event.title}</h4>
+              <p className="text-xs text-[#1E40AF]">
+                {pendingRegistrationData.event.displayDate || pendingRegistrationData.event.date} &bull; {pendingRegistrationData.event.location}
+              </p>
+              <p className="text-xs font-bold text-blue-900">
+                Biaya: {formatRegistrationFee(pendingRegistrationData.event.registrationFee)}
+              </p>
+            </div>
+
+            {/* Ringkasan Data Mahasiswa */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 text-xs">
+              <p className="font-bold uppercase tracking-wider text-slate-500 mb-2">Data Mahasiswa Pendaftar</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-slate-500 block">Nama Lengkap</span>
+                  <strong className="text-slate-800 text-sm">{pendingRegistrationData.form.name}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">NIM</span>
+                  <strong className="text-slate-800 text-sm">{pendingRegistrationData.form.nim}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Email</span>
+                  <span className="text-slate-800 font-semibold">{pendingRegistrationData.form.email}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Program Studi</span>
+                  <span className="text-slate-800 font-semibold">{pendingRegistrationData.form.major}</span>
+                </div>
+                {pendingRegistrationData.form.phone && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500 block">No. Telepon / WhatsApp</span>
+                    <span className="text-slate-800 font-semibold">{pendingRegistrationData.form.phone}</span>
+                  </div>
+                )}
+                {pendingRegistrationData.form.mealChoice && (
+                  <div>
+                    <span className="text-slate-500 block">Pilihan Menu</span>
+                    <span className="text-slate-800 font-semibold">{pendingRegistrationData.form.mealChoice}</span>
+                  </div>
+                )}
+                {pendingRegistrationData.form.shirtSize && (
+                  <div>
+                    <span className="text-slate-500 block">Ukuran Baju</span>
+                    <span className="text-slate-800 font-semibold">{pendingRegistrationData.form.shirtSize}</span>
+                  </div>
+                )}
+                {Number(pendingRegistrationData.event.registrationFee) > 0 && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500 block">Metode Pembayaran</span>
+                    <span className="text-slate-800 font-semibold">
+                      {pendingRegistrationData.form.paymentMethod === 'transfer' ? 'Transfer Bank' : 'Cash (Bayar Langsung)'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Modal Detail Pengumuman */}

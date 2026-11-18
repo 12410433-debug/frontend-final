@@ -24,7 +24,7 @@ function hasAttended(attendanceRows, registration) {
     String(item.registrationId) === String(registration.id)
       && String(item.eventId) === String(registration.eventId)
       && String(item.studentId) === String(registration.studentId)
-      && item.status === 'hadir'
+      && (item.status === 'hadir' || item.status === 'terlambat')
   ));
 }
 

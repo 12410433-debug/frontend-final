@@ -4,6 +4,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 
 import HomePage from '../pages/public/HomePage';
 import LoginPage from '../pages/auth/LoginPage';
+import RegisterStudentPage from '../pages/auth/RegisterStudentPage';
 import EventManagementPage from '../pages/admin/EventManagementPage';
 import StudentDashboard from '../pages/student/StudentDashboard';
 import StudentAIAssistant from '../pages/student/StudentAIAssistant';
@@ -19,6 +20,8 @@ export default function AppRoutes() {
       <Route path="/login/committee" element={<Navigate to="/login/bem" replace />} />
       <Route path="/login/:role" element={<LoginPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register/student" element={<RegisterStudentPage />} />
+      <Route path="/register" element={<RegisterStudentPage />} />
       <Route path="/committee/*" element={<Navigate to="/bem" replace />} />
       <Route element={<DashboardLayout />}>
         <Route path="/student" element={<ProtectedPage role="student"><StudentDashboard /></ProtectedPage>} />
@@ -27,6 +30,7 @@ export default function AppRoutes() {
         <Route path="/student/announcements" element={<ProtectedPage role="student"><StudentDashboard /></ProtectedPage>} />
         <Route path="/student/certificates" element={<ProtectedPage role="student"><StudentDashboard /></ProtectedPage>} />
         <Route path="/student/ai" element={<ProtectedPage role="student"><StudentAIAssistant /></ProtectedPage>} />
+        <Route path="/student/profile" element={<ProtectedPage role="student"><StudentDashboard /></ProtectedPage>} />
 
         <Route path="/bem" element={<ProtectedPage role="bem"><EventManagementPage /></ProtectedPage>} />
         <Route path="/bem/events" element={<ProtectedPage role="bem"><EventManagementPage /></ProtectedPage>} />

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import Badge from '../components/Badge';
-import { Home, Menu, ShieldCheck, GraduationCap } from 'lucide-react';
+import { Menu, ShieldCheck, GraduationCap } from 'lucide-react';
 
 function HeaderRoleBadge({ role }) {
   if (role === 'admin') {
@@ -58,11 +58,7 @@ export default function DashboardLayout() {
               <Menu className="w-6 h-6" />
             </button>
 
-            <Link to="/" aria-label="Kembali ke Beranda Utama" title="Kembali ke Beranda Utama" className="inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-extrabold text-blue-800 transition hover:bg-blue-50 hover:text-blue-950 sm:px-3">
-              <Home className="h-5 w-5 shrink-0" />
-              <span>Beranda Utama</span>
-            </Link>
-            <span className="hidden font-bold text-base text-[#172554] tracking-tight xl:block">
+            <span className="font-extrabold text-base sm:text-lg text-[#172554] tracking-tight">
               FILKOM Event Management
             </span>
           </div>
